@@ -1,0 +1,320 @@
+:root {
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+  --ink: #122033;
+  --muted: #5d6c7b;
+  --gold: #8d6828;
+  --paper: rgba(255, 255, 255, 0.62);
+  --line: rgba(18, 32, 51, 0.08);
+  --due: #7d3b32;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans: "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: #e5eef2;
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(31, 111, 106, 0.16), transparent 28%),
+    radial-gradient(circle at 90% 8%, rgba(166, 124, 45, 0.18), transparent 26%),
+    #e5eef2;
+}
+
+button, input { font: inherit; color: inherit; }
+
+.defs { position: absolute; width: 0; height: 0; }
+
+.sky {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.orb {
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  border-radius: 50%;
+  filter: blur(var(--s6));
+}
+
+.orb-a { top: -8vw; left: -6vw; background: rgba(28, 94, 89, 0.28); }
+.orb-b { top: 4vw; right: -10vw; background: rgba(166, 124, 45, 0.22); }
+
+.app {
+  position: relative;
+  z-index: 1;
+  height: 100vh;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--s5) var(--s4) var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  overflow: hidden;
+}
+
+.topbar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: var(--s3) var(--s4);
+  background: rgba(229, 238, 242, 0.72);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  border: 1px solid var(--line);
+  clip-path: url(#squircle);
+}
+
+.mark {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--serif);
+  font-size: 32px;
+  font-weight: 560;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.mark small {
+  display: block;
+  margin-top: var(--s1);
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.text-btn, .back {
+  border: 0;
+  background: transparent;
+  padding: var(--s2) var(--s3);
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  will-change: transform;
+}
+
+.card-wrap { filter: drop-shadow(0 var(--s2) var(--s5) rgba(16, 28, 44, 0.08)); }
+
+.card, .sheet, .banner, .done, .field {
+  clip-path: url(#squircle);
+}
+
+.card, .sheet, .banner {
+  background: var(--paper);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.card {
+  padding: var(--s5);
+  display: grid;
+  gap: var(--s3);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  user-select: none;
+}
+
+.card.is-grabbed {
+  position: relative;
+  z-index: 3;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.card.is-ack .next { color: var(--gold); }
+
+.kicker {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.next {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 34px;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.card.is-due .next { color: var(--due); }
+
+.reason, .meta, .source, .quiet {
+  margin: 0;
+  color: var(--muted);
+}
+
+.reason { min-height: 2.8em; }
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  margin-top: var(--s2);
+}
+
+.grip {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background:
+    radial-gradient(circle, var(--ink) 1.4px, transparent 1.6px) 10px 14px / 10px 8px,
+    transparent;
+  cursor: grab;
+  padding: 0;
+}
+
+.grip:active { cursor: grabbing; }
+
+.done {
+  min-width: 112px;
+  min-height: 44px;
+  padding: 0 var(--s5);
+  border: 0;
+  background: var(--ink);
+  color: #f5f8fa;
+  cursor: pointer;
+}
+
+.done.is-clicked { animation: press 280ms cubic-bezier(0.2, 0.9, 0.2, 1); }
+
+@keyframes press {
+  0% { transform: scale(0.94); }
+  45% { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+
+.banner, .status {
+  padding: var(--s3) var(--s4);
+}
+
+.status {
+  min-height: 0;
+  margin: 0;
+  color: var(--gold);
+}
+
+.status:empty, #reminders:empty { display: none; }
+
+.sheet {
+  padding: var(--s5);
+  display: grid;
+  gap: var(--s4);
+  align-content: start;
+  height: 100%;
+  overflow: auto;
+  touch-action: pan-y;
+}
+
+.sheet h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 36px;
+  font-weight: 560;
+  letter-spacing: -0.03em;
+}
+
+.block { display: grid; gap: var(--s2); }
+.block h3 {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.claim { margin: 0; }
+.claim a { color: var(--gold); }
+
+.row {
+  display: flex;
+  gap: var(--s3);
+  align-items: center;
+}
+
+.field {
+  flex: 1;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0 var(--s4);
+}
+
+.danger { color: var(--due); }
+
+.tick-ring {
+  position: fixed;
+  width: var(--s5);
+  height: var(--s5);
+  margin-left: calc(var(--s5) * -0.5);
+  margin-top: calc(var(--s5) * -0.5);
+  border: 2px solid var(--gold);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 5;
+  transform: scale(0.6);
+  opacity: 0;
+}
+
+.tick-ring.is-on { animation: ring 360ms ease-out; }
+
+@keyframes ring {
+  0% { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .done.is-clicked, .tick-ring.is-on { animation: none; }
+}
+
+@media (max-width: 640px) {
+  .next { font-size: 28px; }
+  .app { padding: var(--s4) var(--s3) var(--s7); }
+}

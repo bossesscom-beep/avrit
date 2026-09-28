@@ -1,0 +1,8 @@
+{
+  "name": "avrit",
+  "private": true,
+  "description": "Avrit reminds you when a nail cut, haircut, AC service, car-battery check, insurance renewal, or your own upkeep item comes around again.",
+  "scripts": {
+    "test": "node --test tests/avrit.test.js"
+  }
+}
