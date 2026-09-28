@@ -485,7 +485,8 @@
       lastY: event.clientY,
       lastT: performance.now(),
       v: 0,
-      moved: false
+      moved: false,
+      rawY: gesture.rawFromOffset(state.listY, listBounds())
     };
   }
 
@@ -525,8 +526,8 @@
     drag.lastT = now;
     if (drag.mode === "pull") {
       if (Math.abs(event.clientY - drag.originY) > 8) drag.moved = true;
-      var bounds = listBounds();
-      state.listY = gesture.dragOffset(state.listY, dy, bounds);
+      drag.rawY += dy;
+      state.listY = gesture.trackPull(drag.rawY, listBounds());
       applyMotion();
       return;
     }

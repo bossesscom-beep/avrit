@@ -173,7 +173,8 @@ test("default suggestion does not call Gemini, a key can use the same step, and 
 });
 
 test("a pull past rest returns a smaller displacement than the finger delta and a release returns to rest", function () {
-  const pulled = gesture.dragOffset(0, 120, { min: -800, max: 0, dimension: 400 });
+  const bounds = { min: -800, max: 0, dimension: 400 };
+  const pulled = gesture.dragOffset(0, 120, bounds);
   assert.ok(pulled > 0);
   assert.ok(pulled < 120);
   const resisted = gesture.resist(120, 400);
@@ -189,6 +190,22 @@ test("a pull past rest returns a smaller displacement than the finger delta and 
   });
   assert.ok(Math.abs(settled.y) < 0.5);
   assert.equal(settled.v, 0);
+});
+
+test("each further downward pull increases the resisted offset", function () {
+  const bounds = { min: -800, max: 0, dimension: 400 };
+  let raw = 0;
+  let offset = gesture.trackPull(raw, bounds);
+  [80, 6, 8, 8, 8, 8, 8, 8].forEach(function (dy) {
+    raw += dy;
+    const next = gesture.trackPull(raw, bounds);
+    assert.ok(next > offset, "downward " + dy + "px did not increase the offset");
+    assert.ok(next < raw);
+    offset = next;
+  });
+  const afterEighty = gesture.trackPull(80, bounds);
+  assert.ok(gesture.trackPull(86, bounds) > afterEighty);
+  assert.ok(gesture.dragOffset(afterEighty, 6, bounds) < afterEighty);
 });
 
 test("a fling keeps velocity that friction decays", function () {
@@ -283,7 +300,8 @@ test("the entry page uses plain scripts, squircles, blur, and gesture calls", fu
   assert.ok(css.indexOf("backdrop-filter") !== -1);
   assert.ok(css.indexOf("--s4:") !== -1);
   assert.ok(ui.indexOf("window.AvritGesture") !== -1);
-  assert.ok(ui.indexOf("dragOffset") !== -1);
+  assert.ok(ui.indexOf("trackPull") !== -1);
+  assert.ok(ui.indexOf("rawY") !== -1);
   assert.ok(ui.indexOf("stepMotion") !== -1);
   assert.ok(ui.indexOf("commitMove") !== -1);
   assert.ok(ui.indexOf("navigator.vibrate") !== -1);

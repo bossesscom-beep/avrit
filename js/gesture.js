@@ -11,15 +11,41 @@
     return sign * ((mag * dim) / (mag + dim));
   }
 
-  function dragOffset(offset, fingerDelta, bounds) {
+  function boundsOf(bounds) {
     bounds = bounds || {};
-    var min = bounds.min == null ? -Infinity : bounds.min;
-    var max = bounds.max == null ? Infinity : bounds.max;
-    var dim = bounds.dimension || 240;
-    var raw = offset + fingerDelta;
-    if (raw > max) return max + resist(raw - max, dim);
-    if (raw < min) return min - resist(min - raw, dim);
-    return raw;
+    return {
+      min: bounds.min == null ? -Infinity : bounds.min,
+      max: bounds.max == null ? Infinity : bounds.max,
+      dimension: bounds.dimension > 0 ? bounds.dimension : 240
+    };
+  }
+
+  // rawY is the unresisted finger position. Resist the overflow past a bound once.
+  function trackPull(rawY, bounds) {
+    var box = boundsOf(bounds);
+    if (rawY > box.max) return box.max + resist(rawY - box.max, box.dimension);
+    if (rawY < box.min) return box.min - resist(box.min - rawY, box.dimension);
+    return rawY;
+  }
+
+  function rawFromOffset(offset, bounds) {
+    var box = boundsOf(bounds);
+    var dim = box.dimension;
+    if (offset > box.max) {
+      var past = offset - box.max;
+      if (past >= dim) return offset;
+      return box.max + (past * dim) / (dim - past);
+    }
+    if (offset < box.min) {
+      var pastMin = box.min - offset;
+      if (pastMin >= dim) return offset;
+      return box.min - (pastMin * dim) / (dim - pastMin);
+    }
+    return offset;
+  }
+
+  function dragOffset(offset, fingerDelta, bounds) {
+    return trackPull(offset + fingerDelta, bounds);
   }
 
   function stepMotion(state, dt, opts) {
@@ -113,6 +139,8 @@
   return {
     resist: resist,
     dragOffset: dragOffset,
+    trackPull: trackPull,
+    rawFromOffset: rawFromOffset,
     stepMotion: stepMotion,
     settle: settle,
     reorder: reorder,
