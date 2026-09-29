@@ -1,0 +1,54 @@
+default_platform(:ios)
+
+platform :ios do
+  private_lane :avrit_apple_api_key do
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_filepath: ENV.fetch("ASC_KEY_PATH"),
+      duration: 1200,
+      in_house: false
+    )
+  end
+
+  desc "Upload an Avrit IPA without submitting it for review"
+  lane :upload_only do
+    upload_to_app_store(
+      api_key: avrit_apple_api_key,
+      app_identifier: ENV.fetch("IOS_BUNDLE_ID"),
+      ipa: ENV.fetch("IPA_PATH"),
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: false,
+      automatic_release: false,
+      run_precheck_before_submit: false
+    )
+  end
+end
+
+platform :android do
+  desc "Upload an Avrit AAB to the production track as a draft"
+  lane :upload_production_draft do
+    upload_to_play_store(
+      package_name: ENV.fetch("ANDROID_PACKAGE_NAME"),
+      json_key: ENV.fetch("PLAY_JSON_KEY"),
+      aab: ENV.fetch("AAB_PATH"),
+      track: "production",
+      release_status: "draft",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Promote an already-prepared production release"
+  lane :release_production do
+    upload_to_play_store(
+      package_name: ENV.fetch("ANDROID_PACKAGE_NAME"),
+      json_key: ENV.fetch("PLAY_JSON_KEY"),
+      aab: ENV.fetch("AAB_PATH"),
+      track: "production",
+      release_status: "completed"
+    )
+  end
+end

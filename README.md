@@ -9,3 +9,5 @@ The suggestion you see with no API key is Avrit's own timing. A Gemini key can b
 ```bash
 npm test
 ```
+
+The iOS and Android projects bundle this same page. Store keys stay outside the repository, in `~/.config/avrit/release.env`. `scripts/with-release-env.sh` loads that file for a Fastlane command. `fastlane ios upload_only` uploads an IPA without submitting it. `fastlane android upload_production_draft` uploads an AAB as a production draft. `fastlane android release_production` is a separate lane that can send a release into Google review.

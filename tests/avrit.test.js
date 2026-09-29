@@ -309,3 +309,25 @@ test("the entry page uses plain scripts, squircles, blur, and gesture calls", fu
   assert.equal(boot.indexOf("playTick("), -1);
   assert.ok(ui.indexOf("playTick(") !== -1);
 });
+
+test("phone shells and fastlane lanes stay free of store keys", function () {
+  const fastfile = fs.readFileSync(path.join(root, "fastlane/Fastfile"), "utf8");
+  const project = fs.readFileSync(path.join(root, "ios/project.yml"), "utf8");
+  const gradle = fs.readFileSync(path.join(root, "android/app/build.gradle.kts"), "utf8");
+  const ignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+  assert.ok(fastfile.indexOf("lane :upload_only") !== -1);
+  assert.ok(fastfile.indexOf("lane :upload_production_draft") !== -1);
+  assert.ok(fastfile.indexOf("lane :release_production") !== -1);
+  assert.ok(fastfile.indexOf("submit_for_review: false") !== -1);
+  assert.ok(fastfile.indexOf('release_status: "draft"') !== -1);
+  assert.ok(fastfile.indexOf('release_status: "completed"') !== -1);
+  assert.equal(fastfile.indexOf("submit_for_review: true"), -1);
+  assert.equal(fastfile.indexOf(".p8"), -1);
+  assert.equal(fastfile.indexOf("Y5G4NUAA3H"), -1);
+  assert.equal(fastfile.indexOf("play-upload-sa"), -1);
+  assert.ok(project.indexOf("in.bighelpers.avrit") !== -1);
+  assert.ok(project.indexOf("PG2MGPAQ76") !== -1);
+  assert.ok(gradle.indexOf('applicationId = "in.bighelpers.avrit"') !== -1);
+  assert.ok(ignore.indexOf("*.p8") !== -1);
+  assert.ok(ignore.indexOf("play-upload-sa.json") !== -1);
+});
