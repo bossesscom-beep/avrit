@@ -89,6 +89,11 @@
     return engine.formatDay(engine.calendarDay(new Date()));
   }
 
+  function printedBeforeToday(schedule) {
+    if (!schedule || !schedule.nextAt) return false;
+    return engine.formatDay(schedule.nextAt) < todayValue();
+  }
+
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     Object.keys(attrs || {}).forEach(function (key) {
@@ -118,8 +123,9 @@
     state.items.forEach(function (item) {
       var schedule = engine.suggest(item, { useRemote: !!readKey() });
       var due = engine.reminderFor(item, new Date(), { useRemote: !!readKey() }).due;
+      var overdue = due && printedBeforeToday(schedule);
       var card = el("article", {
-        class: "card" + (due ? " is-due" : "") + (state.pulseId === item.id ? " is-ack" : ""),
+        class: "card" + (due ? " is-due" : "") + (overdue ? " is-overdue" : "") + (state.pulseId === item.id ? " is-ack" : ""),
         "data-item": item.id,
         "data-kind": item.kind,
         "data-action": "open"
@@ -163,7 +169,13 @@
     var item = find(state.detailId) || state.items[0];
     var guide = guides.getGuide(item.kind) || guides.getGuide("custom");
     var schedule = engine.suggest(item, { useRemote: !!readKey() });
-    var sheet = el("section", { class: "sheet", id: "sheet" });
+    var due = engine.reminderFor(item, new Date(), { useRemote: !!readKey() }).due;
+    var overdue = due && printedBeforeToday(schedule);
+    var sheet = el("section", {
+      class: "sheet" + (due ? " is-due" : "") + (overdue ? " is-overdue" : ""),
+      id: "sheet",
+      "data-kind": item.kind
+    });
     sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "home", text: "Back" }));
     sheet.appendChild(el("h2", { text: item.title }));
     sheet.appendChild(el("p", {
@@ -293,7 +305,13 @@
     if (action === "home") { goHome(); return; }
     if (action === "more") { state.view = "more"; render(); return; }
     if (action === "add") { state.view = "add"; render(); return; }
-    if (action === "arm-remove") { state.armedRemove = true; render(); return; }
+    if (action === "arm-remove") {
+      state.armedRemove = true;
+      render();
+      var confirm = document.querySelector("[data-action='confirm-remove']");
+      if (confirm && confirm.scrollIntoView) confirm.scrollIntoView({ block: "center" });
+      return;
+    }
     if (action === "confirm-remove") { removeItem(id); return; }
     if (action === "save-date") { saveDate(id); return; }
     if (action === "save-gap") { saveGap(id); return; }
@@ -464,7 +482,12 @@
     state.items.forEach(function (item) {
       var reminder = engine.reminderFor(item, new Date(), { useRemote: !!readKey() });
       if (!reminder.due) return;
-      host.appendChild(el("p", { class: "banner", text: reminder.inApp.title + " is due" }));
+      var schedule = engine.suggest(item, { useRemote: !!readKey() });
+      var overdue = printedBeforeToday(schedule);
+      host.appendChild(el("p", {
+        class: "banner" + (overdue ? " is-overdue" : ""),
+        text: reminder.inApp.title + " is due"
+      }));
     });
   }
 
