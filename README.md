@@ -41,5 +41,6 @@ xcodebuild -exportArchive -archivePath ios/build/Avrit.xcarchive -exportPath ios
 ```
 
 Set `IPA_PATH` or `AAB_PATH` for the existing upload lane. The first store builds
-remain version 0.1.0, build/version code 1. Uploading is separate from App Review
-or a completed Play production release.
+were version 0.1.0, build/version code 1. iOS now uses build 2 for the photo-journal
+TestFlight update; Android remains version code 1. Uploading is separate from
+App Review or a completed Play production release.

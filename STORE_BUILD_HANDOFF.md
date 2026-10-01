@@ -1,5 +1,9 @@
 # Avrit 0.1.0 (1) store build handoff
 
+Later update: iOS **0.1.0 (2)** is available to the owner's internal TestFlight
+group. See `TESTFLIGHT_HANDOFF.md`. The record below describes the original
+build-1 uploads; Android remains at that uploaded build.
+
 Verified 1 October 2026. Repository: `bighelpers/avrit`.
 Branch: `release/avrit-mvp`. Application source commit: `c20f656`.
 

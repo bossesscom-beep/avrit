@@ -2,7 +2,8 @@
 
 Implemented after the first store builds were uploaded. Those existing build-1
 artifacts and store states are recorded in `STORE_BUILD_HANDOFF.md`; they do not
-contain this feature. No new store binary was uploaded for this change.
+contain this feature. In the subsequent owner TestFlight invitation task, iOS
+0.1.0 (2) was uploaded with these changes. Android's uploaded build remains 1.
 
 The app now records completion history with one optional photo and note per day.
 Done remains one tap. Photos live in IndexedDB; metadata lives with the reminder
