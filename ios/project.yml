@@ -23,6 +23,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: in.bighelpers.avrit
         PRODUCT_NAME: Avrit
+        TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Avrit
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
