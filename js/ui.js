@@ -25,6 +25,18 @@
   var reduced = false;
   var renderedView = null;
   var statusTimer = 0;
+  var notificationBusy = false;
+  var notificationMessage = "";
+  var devicePermission = "loading";
+  var deviceScheduled = 0;
+  function deviceReminders() { return window.AvritDeviceReminders && window.AvritDeviceReminders.available(); }
+  function syncDeviceReminders() {
+    if (!deviceReminders()) return;
+    window.AvritDeviceReminders.sync(state.items).then(function (reply) {
+      devicePermission = reply.permission; deviceScheduled = reply.scheduled || 0;
+      if (state.view === "more") render();
+    }, function (error) { notificationMessage = error.message; if (state.view === "more") render(); });
+  }
 
   function boot() {
     try {
@@ -58,8 +70,11 @@
     render();
     if (savedItems === null && window.AvritOnboarding) beginOnboarding();
     raiseDue();
+    syncDeviceReminders();
     window.setInterval(raiseDue, 30000);
     document.addEventListener("visibilitychange", raiseDue);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) syncDeviceReminders(); });
+    window.addEventListener("avrit-device-resume", syncDeviceReminders);
   }
 
   function readItems() {
@@ -75,7 +90,7 @@
   }
 
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify({ version: 1, items: state.items, profile: state.profile, onboardingComplete: state.onboardingComplete })); return true; }
+    try { localStorage.setItem(STORE, JSON.stringify({ version: 1, items: state.items, profile: state.profile, onboardingComplete: state.onboardingComplete })); syncDeviceReminders(); return true; }
     catch (err) { setStatus("Could not save. Free some device storage and try again."); return false; }
   }
 
@@ -212,7 +227,7 @@
         el("button", { class: "done", type: "button", "data-action": "add", text: "＋ Add a reminder" })
       ]));
     }
-    if (state.items.length && !visibleItems.length) stack.appendChild(el('section', { class: 'empty-state' }, [el('h2', { text: 'A little breathing room.' }), el('p', { class: 'quiet', text: 'Nothing here right now. Choose All Avrits to see your collection.' })]));
+    if (state.items.length && !visibleItems.length) stack.appendChild(el('section', { class: 'empty-state' }, [el('h2', { text: 'A little breathing room.' }), el('p', { class: 'quiet', text: 'Nothing here right now.' }), el('button', { class: 'text-btn', type: 'button', 'data-action': 'show-all', text: 'See all my Avrits →' })]));
     visibleItems.forEach(function (item, index) {
       var schedule = engine.suggest(item, { useRemote: false });
       var due = engine.reminderFor(item, new Date(), { useRemote: false }).due;
@@ -303,7 +318,20 @@
     if (window.AvritOnboarding) sheet.appendChild(el("button", { class: "done", type: "button", "data-action": "onboarding", text: "Your profile & Avrit collection →" }));
     var reminders = el("div", { class: "settings-block" }, [el("h3", { text: "Reminders" })]);
     reminders.appendChild(el("p", { class: "quiet", id: "notify-note", text: notifyNote() }));
-    reminders.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "notify", text: "Allow reminders →" }));
+    var permission = notificationPermission();
+    if (permission === "default" || permission === "granted") {
+      var notificationButton = el("button", { class: "done", type: "button", "data-action": permission === "granted" ? "test-notify" : "notify", text: notificationBusy ? "Waiting for permission…" : permission === "granted" ? "Send a test notification" : "Allow notifications →" });
+      notificationButton.disabled = notificationBusy;
+      reminders.appendChild(notificationButton);
+    }
+    reminders.appendChild(el("p", { class: "quiet", id: "notification-feedback", role: "status", text: notificationMessage }));
+    if (deviceReminders()) {
+      reminders.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "refresh-device-reminders", text: "Refresh scheduled alerts" }));
+      reminders.appendChild(field("Reminder time", el("input", { class: "field", id: "reminder-time", type: "time", value: window.AvritDeviceReminders.time(), "aria-label": "Reminder time" })));
+      reminders.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "save-reminder-time", text: "Save reminder time" }));
+      reminders.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "notification-settings", text: "Open device notification settings →" }));
+    }
+    reminders.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "show-due", text: "See what needs care →" }));
     sheet.appendChild(reminders);
     var feel = el("div", { class: "settings-block" }, [el("h3", { text: "The little details" })]);
     feel.appendChild(el("button", { class: "preference", type: "button", "data-action": "toggle-sound", "aria-pressed": String(soundEnabled()), text: "Soft sounds", "data-value": soundEnabled() ? "On" : "Off" }));
@@ -332,11 +360,24 @@
   }
 
   function notifyNote() {
-    if (location.protocol !== "https:" && location.protocol !== "http:") return "Your due reminders appear when you open Avrit.";
-    if (!window.Notification) return "Your due reminders appear when you open Avrit.";
-    if (Notification.permission === "granted") return "Notifications are allowed while Avrit is open. Your list always shows what is due.";
-    if (Notification.permission === "denied") return "Notifications are blocked. The list still marks what is due.";
-    return "See what is due whenever you open Avrit. You can also allow notifications while the page is open.";
+    var permission = notificationPermission();
+    if (deviceReminders()) {
+      if (permission === "loading") return "Checking your device’s notification settings…";
+      if (permission === "granted") return deviceScheduled + " upcoming alerts scheduled on this device, including while Avrit is closed. Due Avrits get one alert; logging Done schedules the next. Your device may delay delivery.";
+      if (permission === "denied") return "Notifications are off for Avrit. Open device notification settings to allow alerts.";
+      return "Let Avrit send a gentle notification on each due date, even when the app is closed. Choose a time that suits your day.";
+    }
+    if (permission === "unavailable") return "This browser or app does not support system notifications here. Open Avrit to see your due reminders; alerts will not arrive while it is closed.";
+    if (permission === "granted") return "Notifications are allowed while this page is open. Closing Avrit stops these alerts. Your dashboard keeps every due date.";
+    if (permission === "denied") return "Notifications are blocked. Change the notification permission for Avrit in your browser’s site settings, then return here. Your dashboard still shows what is due.";
+    return "Allow a notification when an Avrit is due while this page is open. Alerts will not arrive after you close it.";
+  }
+
+  function notificationPermission() {
+    if (deviceReminders()) return devicePermission;
+    var secure = window.isSecureContext === true || location.protocol === "https:" ||
+      (location.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].indexOf(location.hostname) !== -1);
+    return secure && window.Notification && typeof Notification.requestPermission === "function" ? Notification.permission : "unavailable";
   }
 
   function onClick(event) {
@@ -363,8 +404,10 @@
       return;
     }
     if (action === "toggle-sound") {
-      try { localStorage.setItem("avrit.sound", soundEnabled() ? "off" : "on"); } catch (err) { /* optional */ }
+      try { localStorage.setItem("avrit.sound", soundEnabled() ? "off" : "on"); }
+      catch (err) { setStatus("Could not save your sound preference. Free some device storage and try again."); return; }
       render();
+      setStatus(soundEnabled() ? "Soft sounds on." : "Soft sounds off.");
       return;
     }
     if (action === "home") { goHome(); return; }
@@ -382,6 +425,20 @@
     if (action === "save-gap") { saveGap(id); return; }
     if (action === "clear-gap") { clearGap(id); return; }
     if (action === "notify") { askNotify(); return; }
+    if (action === "notification-settings") {
+      window.AvritDeviceReminders.call("settings").catch(function (error) { notificationMessage = error.message; render(); }); return;
+    }
+    if (action === "refresh-device-reminders") { notificationMessage = ""; syncDeviceReminders(); return; }
+    if (action === "save-reminder-time") {
+      var clock = document.getElementById("reminder-time").value;
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(clock)) { setStatus("Choose a reminder time first."); return; }
+      try { localStorage.setItem("avrit.reminder-time", clock); notificationMessage = "Reminder time saved."; syncDeviceReminders(); }
+      catch (error) { setStatus("Could not save your reminder time. Please try again."); }
+      return;
+    }
+    if (action === "test-notify") { testNotify(); return; }
+    if (action === "show-due") { state.filter = "due"; state.listY = 0; goHome(); return; }
+    if (action === "show-all") { state.filter = "all"; state.listY = 0; goHome(); return; }
     if (action === "restore") { restoreBuiltins(); return; }
     if (action === "create") { createItem(); }
   }
@@ -397,6 +454,7 @@
   function beginOnboarding() {
     window.AvritOnboarding.start(state.items, state.profile, function (items, profile, added) {
       state.items = items; state.profile = profile; state.onboardingComplete = true;
+      syncDeviceReminders();
       state.listY = 0; state.filter = 'all'; goHome();
       setStatus(added + " Avrit" + (added === 1 ? "" : "s") + " added. A little care, on repeat.");
     });
@@ -501,21 +559,65 @@
   }
 
   function askNotify() {
-    if (!window.Notification || !Notification.requestPermission) {
+    if (notificationBusy || notificationPermission() !== "default") return;
+    notificationBusy = true;
+    notificationMessage = "Choose Allow in your browser’s permission prompt.";
+    if (deviceReminders()) {
+      notificationMessage = "Choose Allow in your device’s permission prompt.";
       render();
+      window.AvritDeviceReminders.call("request").then(function (reply) {
+        notificationBusy = false; devicePermission = reply.permission;
+        notificationMessage = devicePermission === "granted" ? "Notifications enabled. Scheduling your Avrits…" : "Notifications are off. You can enable them in device settings.";
+        syncDeviceReminders(); if (state.view === "more") render();
+      }, notificationFailure);
       return;
     }
-    Notification.requestPermission().then(function () { render(); }, function () { render(); });
+    try {
+      var request = Notification.requestPermission();
+      render();
+      Promise.resolve(request).then(function () {
+        notificationBusy = false;
+        notificationMessage = notificationPermission() === "granted" ? "Notifications enabled. You can send a test below." : notificationPermission() === "denied" ? "Permission was blocked. You can change it in site settings." : "Permission was not granted. Tap Allow notifications to try again.";
+        if (state.view === "more") render();
+        raiseDue();
+      }, notificationFailure);
+    } catch (err) { notificationFailure(); }
+  }
+
+  function notificationFailure() {
+    notificationBusy = false;
+    notificationMessage = "The browser could not enable notifications. Check its site permissions and try again.";
+    if (state.view === "more") render();
+  }
+
+  function testNotify() {
+    if (deviceReminders()) {
+      window.AvritDeviceReminders.call("test").then(function () {
+        notificationMessage = "Test requested. Check your notification centre in a few seconds."; render();
+      }, function (error) { notificationMessage = error.message; render(); });
+      return;
+    }
+    var result = engine.presentReminder({ title: "A little care, on repeat.", body: "Your Avrit test notification is here." }, {
+      permission: notificationPermission(),
+      show: function (title, opts) { new Notification(title, opts); }
+    });
+    notificationMessage = result.system.ok ? "Test sent. If it does not appear, check your device’s notification and Focus settings." : "The test could not be sent. Check browser and device notification permissions.";
+    render();
   }
 
   function restoreBuiltins() {
-    var byId = {};
-    state.items.forEach(function (item) { byId[item.id] = item; });
-    var builtins = engine.builtinItems().map(function (item) { return byId[item.id] || item; });
-    var custom = state.items.filter(function (item) { return item.kind === "custom"; });
-    state.items = builtins.concat(custom);
-    save();
+    var previous = state.items;
+    var missing = engine.builtinItems().filter(function (starter) {
+      return !state.items.some(function (item) { return item.id === starter.id || item.kind === starter.kind || item.templateId === starter.id; });
+    });
+    state.items = state.items.concat(missing);
+    if (!save()) {
+      state.items = previous;
+      return;
+    }
+    state.filter = "all";
     goHome();
+    setStatus(missing.length ? missing.length + " starter rhythms added. Your existing Avrits are unchanged." : "All five starter rhythms are already in your collection.");
   }
 
   function setStatus(text) {
@@ -527,17 +629,16 @@
 
   function raiseDue() {
     raiseDueLabels();
-    if (location.protocol !== "https:" || !window.Notification) return;
+    if (deviceReminders() || notificationPermission() !== "granted") return;
     state.items.forEach(function (item) {
       var reminder = engine.reminderFor(item, new Date(), { useRemote: false });
-      if (!reminder.due || notified[item.id]) return;
-      notified[item.id] = true;
-      engine.presentReminder(reminder.inApp, {
-        permission: Notification.permission,
-        show: function (title, opts) {
-          try { new Notification(title, opts); } catch (err) { /* in-app banner remains */ }
-        }
+      var key = item.id + ":" + reminder.schedule.nextAt;
+      if (!reminder.due || notified[key]) return;
+      var result = engine.presentReminder(reminder.inApp, {
+        permission: notificationPermission(),
+        show: function (title, opts) { new Notification(title, opts); }
       });
+      if (result.system.ok) notified[key] = true;
     });
   }
 

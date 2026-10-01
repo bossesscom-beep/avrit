@@ -5,9 +5,9 @@ const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const root = path.join(__dirname, '..');
 
-async function app(t, saved, configure) {
+async function app(t, saved, configure, url = 'https://avrit.test/') {
   const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
-    url: 'https://avrit.test/', runScripts: 'outside-only', pretendToBeVisual: true
+    url, runScripts: 'outside-only', pretendToBeVisual: true
   });
   t.after(() => dom.window.close());
   const w = dom.window;
@@ -17,7 +17,7 @@ async function app(t, saved, configure) {
   w.AvritNative = { postMessage(kind) { haptics.push(kind); } };
   if (saved) w.localStorage.setItem('avrit.items.v1', JSON.stringify({ version: 1, items: saved }));
   if (configure) configure(w);
-  for (const file of ['engine', 'guides', 'gesture', 'journal', 'ai', 'features', 'ui']) w.eval(fs.readFileSync(path.join(root, 'js', file + '.js'), 'utf8'));
+  for (const file of ['engine', 'guides', 'gesture', 'journal', 'ai', 'features', 'reminders', 'ui']) w.eval(fs.readFileSync(path.join(root, 'js', file + '.js'), 'utf8'));
   const click = selector => {
     const node = w.document.querySelector(selector);
     assert.ok(node, 'Missing element: ' + selector);
@@ -178,6 +178,147 @@ function pointer(w, node, type, y) {
   });
   node.dispatchEvent(event);
 }
+
+const dueItem = { id: 'avrit-haircut', kind: 'haircut', templateId: 'haircut', title: 'Hair cutting', lastDone: '2020-01-01', intervalDays: 42, logs: [{ date: '2020-01-01', note: 'Keep my history' }] };
+
+test('native Settings permission, test, time and completion controls update device schedules', async t => {
+  const requests = [];
+  let permission = 'default';
+  const { w, d, click } = await app(t, [dueItem], w => {
+    w.AvritReminders = { postMessage(raw) {
+      const request = JSON.parse(raw); requests.push(request);
+      if (request.action === 'request') permission = 'granted';
+      w.AvritReminderReply({ id: request.id, permission, scheduled: permission === 'granted' ? 1 : 0 });
+    } };
+  });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  click('#nav-more');
+  assert.match(d.querySelector('#notify-note').textContent, /even when the app is closed/);
+  click('[data-action="notify"]');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(d.querySelector('#notify-note').textContent, /1 upcoming alerts/);
+  click('[data-action="test-notify"]');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(requests.at(-1).action, 'test');
+  d.querySelector('#reminder-time').value = '17:15';
+  click('[data-action="save-reminder-time"]');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(w.localStorage.getItem('avrit.reminder-time'), '17:15');
+  assert.equal(new Date(requests.at(-1).items[0].at).getHours(), 17);
+  click('[data-action="notification-settings"]');
+  assert.equal(requests.at(-1).action, 'settings');
+  click('#nav-home'); click('[data-action="done"]');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(requests.at(-1).action, 'sync');
+  assert.ok(requests.at(-1).items[0].at > Date.now());
+});
+
+test('localhost permission grant sends previously due reminders, deduplicates and supports a test notification', async t => {
+  const sent = [];
+  const { w, d, click } = await app(t, [dueItem], w => {
+    w.Notification = function (title) { sent.push(title); };
+    w.Notification.permission = 'default';
+    w.Notification.requestPermission = async () => { w.Notification.permission = 'granted'; return 'granted'; };
+  }, 'http://127.0.0.1:8768/');
+  assert.equal(sent.length, 0);
+  click('#nav-more');
+  click('[data-action="notify"]');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(sent, ['Hair cutting']);
+  assert.match(d.querySelector('#notification-feedback').textContent, /enabled/);
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  assert.equal(sent.length, 1);
+  click('[data-action="test-notify"]');
+  assert.equal(sent.length, 2);
+  assert.match(d.querySelector('#notification-feedback').textContent, /Test sent/);
+});
+
+test('failed notification delivery retries; a changed due date can send a new reminder', async t => {
+  let attempts = 0;
+  const { w, d, click } = await app(t, [dueItem], w => {
+    w.Notification = function () { if (++attempts === 1) throw new Error('Delivery failed'); };
+    w.Notification.permission = 'granted';
+    w.Notification.requestPermission = async () => 'granted';
+  });
+  assert.equal(attempts, 1);
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  assert.equal(attempts, 2);
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  assert.equal(attempts, 2);
+  click('[data-action="open"]');
+  d.querySelector('#gap').value = '43';
+  click('[data-action="save-gap"]');
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  assert.equal(attempts, 3);
+});
+
+test('unsupported and blocked notification settings give useful status without a dead permission button', async t => {
+  const unsupported = await app(t);
+  unsupported.click('#nav-more');
+  assert.equal(unsupported.d.querySelector('[data-action="notify"]'), null);
+  assert.match(unsupported.d.querySelector('#notify-note').textContent, /does not support/);
+  const blocked = await app(t, null, w => {
+    w.Notification = function () {};
+    w.Notification.permission = 'denied';
+    w.Notification.requestPermission = () => { throw new Error('Must not request again'); };
+  });
+  blocked.click('#nav-more');
+  assert.equal(blocked.d.querySelector('[data-action="notify"]'), null);
+  assert.match(blocked.d.querySelector('#notify-note').textContent, /site settings/);
+});
+
+test('dismissed and failed permission requests remain retryable and never strand the button', async t => {
+  for (const result of ['dismiss', 'reject', 'throw']) {
+    const { d, click } = await app(t, [], w => {
+      w.Notification = function () {};
+      w.Notification.permission = 'default';
+      w.Notification.requestPermission = () => {
+        if (result === 'throw') throw new Error('Unavailable');
+        return result === 'reject' ? Promise.reject(new Error('Unavailable')) : Promise.resolve('default');
+      };
+    });
+    click('#nav-more');
+    click('[data-action="notify"]');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(d.querySelector('[data-action="notify"]').disabled, false);
+    assert.match(d.querySelector('#notification-feedback').textContent, /try again/);
+  }
+});
+
+test('restoring starters preserves onboarding items and history without duplication', async t => {
+  const { w, click } = await app(t, [dueItem]);
+  click('#nav-more');
+  click('[data-action="restore"]');
+  const saved = JSON.parse(w.localStorage.getItem('avrit.items.v1')).items;
+  assert.equal(saved.length, 5);
+  assert.deepEqual(saved[0], dueItem);
+  assert.equal(saved.filter(item => item.kind === 'haircut').length, 1);
+  click('#nav-more');
+  click('[data-action="restore"]');
+  assert.equal(JSON.parse(w.localStorage.getItem('avrit.items.v1')).items.length, 5);
+});
+
+test('failed settings saves report failure and preserve the current collection and sound preference', async t => {
+  const { w, d, click } = await app(t, [dueItem]);
+  w.Storage.prototype.setItem = () => { throw new Error('Quota exceeded'); };
+  click('#nav-more');
+  click('[data-action="toggle-sound"]');
+  assert.match(d.querySelector('#status').textContent, /Could not save your sound preference/);
+  assert.equal(d.querySelector('[data-action="toggle-sound"]').getAttribute('aria-pressed'), 'true');
+  click('[data-action="restore"]');
+  assert.match(d.querySelector('#status').textContent, /Could not save/);
+  click('#nav-home');
+  assert.equal(d.querySelectorAll('.card').length, 1);
+});
+
+test('Settings due view filters reminders and the empty state has a working route back', async t => {
+  const { d, click } = await app(t, [{ ...dueItem, lastDone: '2099-01-01' }]);
+  click('#nav-more');
+  click('[data-action="show-due"]');
+  assert.equal(d.querySelectorAll('.card').length, 0);
+  click('[data-action="show-all"]');
+  assert.equal(d.querySelectorAll('.card').length, 1);
+});
 
 test('pull resistance grows with the finger and reduced-motion release returns immediately to rest', async t => {
   const { w, d } = await app(t);

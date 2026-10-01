@@ -3,6 +3,7 @@
   "private": true,
   "description": "Avrit reminds you when a nail cut, haircut, AC service, car-battery check, insurance renewal, or your own upkeep item comes around again.",
   "scripts": {
+    "preview": "python3 -m http.server 8768 --bind 127.0.0.1",
     "start:api": "node server/server.js",
     "test": "node --test tests/*.test.js"
   },
