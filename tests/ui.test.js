@@ -5,7 +5,7 @@ const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const root = path.join(__dirname, '..');
 
-async function app(t, saved) {
+async function app(t, saved, configure) {
   const dom = new JSDOM(fs.readFileSync(path.join(root, 'index.html'), 'utf8'), {
     url: 'https://avrit.test/', runScripts: 'outside-only', pretendToBeVisual: true
   });
@@ -16,7 +16,8 @@ async function app(t, saved) {
   const haptics = [];
   w.AvritNative = { postMessage(kind) { haptics.push(kind); } };
   if (saved) w.localStorage.setItem('avrit.items.v1', JSON.stringify({ version: 1, items: saved }));
-  for (const file of ['engine', 'guides', 'gesture', 'ui']) w.eval(fs.readFileSync(path.join(root, 'js', file + '.js'), 'utf8'));
+  if (configure) configure(w);
+  for (const file of ['engine', 'guides', 'gesture', 'journal', 'ai', 'features', 'ui']) w.eval(fs.readFileSync(path.join(root, 'js', file + '.js'), 'utf8'));
   const click = selector => {
     const node = w.document.querySelector(selector);
     assert.ok(node, 'Missing element: ' + selector);
@@ -102,6 +103,72 @@ test('sound preference persists and an invalid custom item stays in the form', a
   click('[data-action="create"]');
   assert.equal(d.querySelector('#add-note').textContent, 'Name it first.');
   assert.ok(d.querySelector('#custom-name'));
+});
+
+test('Gemini draft requires explicit use and normal Add before it is saved', async t => {
+  const requests = [];
+  const { w, d, click } = await app(t, null, w => {
+    w.localStorage.setItem('avrit.ai.connection.v1', JSON.stringify({ origin: 'https://ai.example.test', token: 'test-token' }));
+    w.fetch = async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, json: async () => ({ title: 'Water basil', intervalDays: 3, reason: 'Every three days, as requested.', note: '' }) };
+    };
+  });
+  click('.nav-add');
+  d.querySelector('.ai-compose').open = true;
+  d.querySelector('.ai-compose textarea').value = 'Water basil every three days';
+  [...d.querySelectorAll('button')].find(n => n.textContent === 'Send to Gemini · draft reminder').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(requests.length, 1);
+  assert.equal(JSON.parse(requests[0].options.body).text, 'Water basil every three days');
+  assert.equal(d.querySelector('#custom-name').value, '');
+  assert.equal(w.localStorage.getItem('avrit.items.v1'), null);
+  [...d.querySelectorAll('button')].find(n => n.textContent === 'Use this draft').click();
+  assert.equal(d.querySelector('#custom-name').value, 'Water basil');
+  assert.equal(w.localStorage.getItem('avrit.items.v1'), null);
+  click('[data-action="create"]');
+  assert.equal(JSON.parse(w.localStorage.getItem('avrit.items.v1')).items[5].intervalDays, 3);
+});
+
+test('logging never sends photos or reminders to Gemini automatically', async t => {
+  let requests = 0;
+  const { w, click } = await app(t, null, w => {
+    w.localStorage.setItem('avrit.geminiKey', 'legacy-test-value');
+    w.localStorage.setItem('avrit.ai.connection.v1', JSON.stringify({ origin: 'https://ai.example.test', token: 'test-token' }));
+    w.fetch = async () => { requests++; throw new Error('Unexpected network request'); };
+  });
+  click('[data-action="done"]');
+  click('[data-action="open"]');
+  assert.equal(requests, 0);
+  assert.equal(w.localStorage.getItem('avrit.geminiKey'), null);
+  assert.equal(JSON.parse(w.localStorage.getItem('avrit.items.v1')).items[0].logs.length, 1);
+});
+
+test('failed photo storage leaves completion date and history unchanged', async t => {
+  const { w, d, click } = await app(t);
+  w.AvritJournal.preparePhoto = async () => new Blob(['test'], { type: 'image/jpeg' });
+  w.URL.createObjectURL = () => 'blob:test';
+  w.URL.revokeObjectURL = () => {};
+  w.HTMLElement.prototype.scrollIntoView = () => {};
+  click('[data-action="open"]');
+  const picker = d.querySelector('input[type=file]');
+  Object.defineProperty(picker, 'files', { value: [{ type: 'image/jpeg' }] });
+  picker.dispatchEvent(new w.Event('change'));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  [...d.querySelectorAll('button')].find(n => n.textContent === 'Save photo & log').click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(w.localStorage.getItem('avrit.items.v1'), null);
+  assert.match(d.querySelector('.feature-status').textContent, /unavailable/);
+  assert.ok(d.querySelector('.photo-editor img'), 'Draft remains available to retry');
+});
+
+test('a failed completion save rolls back the in-memory item', async t => {
+  const { w, d, click } = await app(t);
+  w.Storage.prototype.setItem = () => { throw new Error('Quota exceeded'); };
+  click('[data-action="done"]');
+  click('[data-action="open"]');
+  assert.equal(d.querySelector('[data-next-due]').textContent, 'Whenever you’re ready.');
+  assert.match(d.querySelector('#status').textContent, /Could not save/);
 });
 
 function pointer(w, node, type, y) {

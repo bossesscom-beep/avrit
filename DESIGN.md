@@ -30,6 +30,23 @@ The reminder engine and source-backed guide content are independent of this
 presentation. The native shells bundle the same local web assets; the web app
 does not need to be deployed to build a store binary.
 
+## Photo journal and optional assistance
+
+- Keep Done as a one-tap action. Details offer “Log with photo”; choosing a
+  picture opens a preview with a date, optional note and explicit Save.
+- One entry per day prevents accidental duplicate logs. Repeated Done taps
+  preserve existing photos and notes. A backdated entry must not regress the
+  current reminder date. Replacing a day's photo requires a second tap.
+- Photos are resized to at most 1280 pixels on the longest edge and re-encoded
+  without source metadata. History thumbnails use the same shape and spacing
+  conventions as reminder cards. Show a clear error when storage fails.
+- Gemini is a disclosure in Add and the photo composer. Explain precisely what
+  is sent before the sharing button. A successful response is a draft, never
+  proof of completion or an automatic interval change. Applying an interval
+  from a photo still requires saving the log.
+- Secondary connection controls remain in Settings. The current access-code
+  connection is a private pilot gate, not public customer onboarding.
+
 ## Icon
 
 `css/avrit-icon.svg` is the editable source: a looping lowercase a, a small

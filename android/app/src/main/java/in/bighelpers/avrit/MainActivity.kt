@@ -2,6 +2,10 @@ package `in`.bighelpers.avrit
 
 import android.content.Intent
 import android.os.Bundle
+import android.net.Uri
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import androidx.activity.result.contract.ActivityResultContracts
 import android.view.View
 import android.view.HapticFeedbackConstants
 import android.widget.FrameLayout
@@ -18,6 +22,18 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 
 class MainActivity : AppCompatActivity() {
+    private var photoCallback: ValueCallback<Array<Uri>>? = null
+    private val photoPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        photoCallback?.onReceiveValue(uri?.let { arrayOf(it) })
+        photoCallback = null
+    }
+
+    override fun onDestroy() {
+        photoCallback?.onReceiveValue(null)
+        photoCallback = null
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -36,6 +52,22 @@ class MainActivity : AppCompatActivity() {
             .build()
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams
+            ): Boolean {
+                if (Uri.parse(view.url).host != "appassets.androidplatform.net") return false
+                photoCallback?.onReceiveValue(null)
+                photoCallback = callback
+                try {
+                    photoPicker.launch("image/*")
+                } catch (_: android.content.ActivityNotFoundException) {
+                    photoCallback?.onReceiveValue(null)
+                    photoCallback = null
+                }
+                return true
+            }
+        }
         webView.overScrollMode = View.OVER_SCROLL_NEVER
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(

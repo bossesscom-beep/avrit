@@ -3,7 +3,6 @@
   var guides = window.AvritGuides;
   var gesture = window.AvritGesture;
   var STORE = "avrit.items.v1";
-  var KEY = "avrit.geminiKey";
   var state = {
     items: [],
     view: "home",
@@ -69,20 +68,16 @@
   }
 
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify({ version: 1, items: state.items })); }
-    catch (err) { /* private mode still runs in memory */ }
+    try { localStorage.setItem(STORE, JSON.stringify({ version: 1, items: state.items })); return true; }
+    catch (err) { setStatus("Could not save. Free some device storage and try again."); return false; }
   }
 
-  function readKey() {
-    try { return localStorage.getItem(KEY) || ""; }
-    catch (err) { return ""; }
-  }
-
-  function writeKey(value) {
-    try {
-      if (value) localStorage.setItem(KEY, value);
-      else localStorage.removeItem(KEY);
-    } catch (err) { /* ignore */ }
+  function commit(item) {
+    var previous = state.items;
+    replace(item);
+    if (save()) return true;
+    state.items = previous;
+    return false;
   }
 
   function find(id) {
@@ -168,6 +163,10 @@
     else if (state.view === "more") stage.appendChild(renderMore());
     else if (state.view === "add") stage.appendChild(renderAdd());
     else stage.appendChild(renderHome());
+    window.AvritFeatures.mount(state.view, find(state.detailId), {
+      find: find, commit: commit, render: render, status: setStatus, today: todayValue,
+      haptic: function () { hapticClick("success"); }
+    });
     raiseDueLabels();
     if (openOptions && document.getElementById("item-options")) document.getElementById("item-options").open = true;
     if (state.view !== "home") {
@@ -201,8 +200,8 @@
       ]));
     }
     state.items.forEach(function (item, index) {
-      var schedule = engine.suggest(item, { useRemote: !!readKey() });
-      var due = engine.reminderFor(item, new Date(), { useRemote: !!readKey() }).due;
+      var schedule = engine.suggest(item, { useRemote: false });
+      var due = engine.reminderFor(item, new Date(), { useRemote: false }).due;
       var overdue = due && printedBeforeToday(schedule);
       var card = el("article", {
         class: "card" + (due ? " is-due" : "") + (overdue ? " is-overdue" : "") + (state.pulseId === item.id ? " is-ack" : ""),
@@ -231,8 +230,8 @@
   function renderDetail() {
     var item = find(state.detailId) || state.items[0];
     var guide = guides.getGuide(item.kind) || guides.getGuide("custom");
-    var schedule = engine.suggest(item, { useRemote: !!readKey() });
-    var due = engine.reminderFor(item, new Date(), { useRemote: !!readKey() }).due;
+    var schedule = engine.suggest(item, { useRemote: false });
+    var due = engine.reminderFor(item, new Date(), { useRemote: false }).due;
     var sheet = el("section", { class: "sheet" + (due ? " is-due" : ""), id: "sheet", "data-kind": item.kind });
     sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "home", text: "← My rhythms" }));
     var hero = el("div", { class: "detail-hero" }, [icon(item.kind), el("h2", { text: item.title })]);
@@ -287,14 +286,6 @@
     sheet.appendChild(feel);
     var advanced = el("details", { class: "guide" });
     advanced.appendChild(el("summary", { text: "Optional extras" }));
-    var keyRow = el("div", { class: "row" });
-    var key = el("input", { class: "field", id: "gemini-key", type: "password", placeholder: "Gemini key", autocomplete: "off", "aria-label": "Gemini API key" });
-    if (readKey()) key.value = readKey();
-    keyRow.appendChild(key);
-    keyRow.appendChild(el("button", { class: "done", type: "button", "data-action": "save-key", text: "Save key" }));
-    advanced.appendChild(keyRow);
-    advanced.appendChild(el("p", { class: "quiet", text: "Avrit works without a key. If added, your item and last-done date go to Google Gemini for a timing suggestion. The key stays on this device." }));
-    advanced.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "clear-key", text: "Forget key" }));
     advanced.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "restore", text: "Restore the five starter rhythms" }));
     sheet.appendChild(advanced);
     sheet.appendChild(el("p", { class: "quiet", text: "Avrit · A little care, on repeat." }));
@@ -363,8 +354,6 @@
     if (action === "save-date") { saveDate(id); return; }
     if (action === "save-gap") { saveGap(id); return; }
     if (action === "clear-gap") { clearGap(id); return; }
-    if (action === "save-key") { saveKey(); return; }
-    if (action === "clear-key") { writeKey(""); render(); return; }
     if (action === "notify") { askNotify(); return; }
     if (action === "restore") { restoreBuiltins(); return; }
     if (action === "create") { createItem(); }
@@ -386,18 +375,16 @@
   }
 
   function logDone(id, button) {
-    feedbackFromGesture(button);
     var item = find(id);
     if (!item) return;
     var shown = button && button.getAttribute("data-shown") ? button.getAttribute("data-shown") : todayValue();
-    var nextItem = engine.markDone(item, shown);
-    replace(nextItem);
-    save();
+    var nextItem = window.AvritJournal.record(item, shown);
+    if (!commit(nextItem)) return;
+    feedbackFromGesture(button);
     state.pulseId = id;
-    var schedule = engine.suggest(nextItem);
+    var schedule = engine.suggest(nextItem, { useRemote: false });
     setStatus(nextItem.title + " logged. Next is " + engine.prettyDate(schedule.nextAt) + ".");
     render();
-    maybeGemini(nextItem);
     window.setTimeout(function () {
       if (state.pulseId === id) {
         state.pulseId = "";
@@ -417,10 +404,10 @@
     var input = document.getElementById("when");
     if (!input || !input.value) return;
     feedbackFromGesture(document.querySelector("[data-action='save-date']"));
-    var item = engine.markDone(find(id), input.value);
-    replace(item);
-    save();
-    setStatus("Date saved. Next is " + engine.prettyDate(engine.suggest(item).nextAt) + ".");
+    if (input.value > todayValue()) { setStatus("Choose today or an earlier day."); return; }
+    var item = window.AvritJournal.record(find(id), input.value);
+    if (!commit(item)) return;
+    setStatus("Date saved. Next is " + engine.prettyDate(engine.suggest(item, { useRemote: false }).nextAt) + ".");
     render();
   }
 
@@ -429,23 +416,28 @@
     var item = engine.setUserInterval(find(id), input.value);
     if (!engine.hasUserInterval(item)) return;
     feedbackFromGesture(document.querySelector("[data-action='save-gap']"));
-    replace(item);
-    save();
+    if (!commit(item)) return;
     render();
   }
 
   function clearGap(id) {
     var item = engine.clearUserInterval(find(id));
-    replace(item);
-    save();
+    if (!commit(item)) return;
     render();
   }
 
-  function removeItem(id) {
-    state.items = state.items.filter(function (item) { return item.id !== id; });
-    save();
-    state.armedRemove = false;
-    goHome();
+  async function removeItem(id) {
+    var item = find(id);
+    if (!item) return;
+    var hasPhotos = window.AvritJournal.logs(item).some(function (entry) { return !!entry.photoId; });
+    try {
+      if (hasPhotos) await window.AvritFeatures.removePhotos(item);
+      var previous = state.items;
+      state.items = state.items.filter(function (value) { return value.id !== id; });
+      if (!save()) { state.items = previous; return; }
+      state.armedRemove = false;
+      goHome();
+    } catch (_) { setStatus("Could not remove its photos. Please try again."); }
   }
 
   function createItem() {
@@ -463,18 +455,13 @@
       return;
     }
     feedbackFromGesture(document.querySelector("[data-action='create']"));
+    var previous = state.items;
     state.items = state.items.concat([item]);
-    save();
+    if (!save()) { state.items = previous; return; }
     goHome();
     state.listY = listBounds().min;
     applyMotion();
     setStatus(item.title + " added. Its next time is set.");
-  }
-
-  function saveKey() {
-    var input = document.getElementById("gemini-key");
-    writeKey(input && input.value ? input.value.trim() : "");
-    setStatus(readKey() ? "Key saved on this device." : "No key saved. Avrit's own timing stays on.");
   }
 
   function askNotify() {
@@ -495,20 +482,6 @@
     goHome();
   }
 
-  function maybeGemini(item) {
-    var key = readKey();
-    if (!key || engine.hasUserInterval(item)) return;
-    engine.suggestAsync(item, { geminiApiKey: key, fetch: window.fetch.bind(window) }).then(function (schedule) {
-      if (!schedule || schedule.origin !== "gemini") return;
-      var current = find(item.id);
-      if (!current || current.lastDone !== item.lastDone || engine.hasUserInterval(current)) return;
-      current.remoteIntervalDays = schedule.intervalDays;
-      current.remoteReason = schedule.reason;
-      save();
-      render();
-    });
-  }
-
   function setStatus(text) {
     var node = document.getElementById("status");
     if (node) node.textContent = text;
@@ -520,7 +493,7 @@
     raiseDueLabels();
     if (location.protocol !== "https:" || !window.Notification) return;
     state.items.forEach(function (item) {
-      var reminder = engine.reminderFor(item, new Date(), { useRemote: !!readKey() });
+      var reminder = engine.reminderFor(item, new Date(), { useRemote: false });
       if (!reminder.due || notified[item.id]) return;
       notified[item.id] = true;
       engine.presentReminder(reminder.inApp, {
@@ -537,7 +510,7 @@
     if (!host) return;
     host.textContent = "";
     var dueItems = state.items.filter(function (item) {
-      var reminder = engine.reminderFor(item, new Date(), { useRemote: !!readKey() });
+      var reminder = engine.reminderFor(item, new Date(), { useRemote: false });
       var card = Array.prototype.find.call(document.querySelectorAll(".card"), function (node) { return node.getAttribute("data-item") === item.id; });
       if (card) {
         var overdue = reminder.due && printedBeforeToday(reminder.schedule);

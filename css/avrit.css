@@ -108,6 +108,22 @@ button { transition: transform 150ms ease, background 150ms ease; }
 .claim { margin: 0; font-size: 13px; line-height: 1.65; }
 .claim a { display: inline; color: #5743B5; text-underline-offset: 3px; }
 .danger { color: var(--due); }
+.journal { display: grid; gap: 12px; padding: 18px 0; border-top: 1px solid var(--line); }
+.journal h3, .journal h4 { margin: 0; }
+.journal-entry { display: grid; gap: 8px; padding: 16px; background: #F6F5FA; border-radius: 20px; }
+.journal-entry h4 { font-size: 13px; }
+.journal-list, .photo-editor { display: grid; gap: 12px; }
+.journal-photo { display: block; width: 100%; max-height: 340px; object-fit: contain; background: #E8E5F0; border-radius: 18px; }
+.photo-action { min-height: 48px; border: 1px solid #CEC4EF; border-radius: 17px; background: #EDE6FB; color: #4D3787; font-size: 14px; font-weight: 700; }
+.detail-hero .photo-action { width: 100%; margin-top: 8px; background: rgba(255,255,255,.65); }
+.photo-editor:empty, .feature-status:empty, .ai-result:empty { display: none; }
+.ai-compose > *, .ai-settings > *, .photo-editor details > * { margin-bottom: 12px; }
+.ai-result { display: grid; gap: 12px; margin-top: 12px; padding: 16px; background: #EEF6DC; border-radius: 18px; }
+textarea.field { font: inherit; font-size: 15px; resize: vertical; min-height: 96px; }
+textarea:focus-visible { outline: 3px solid #6553CE; outline-offset: 3px; }
+button:disabled { cursor: wait; opacity: .6; }
+.feature-status { color: #5743B5; }
+@supports (corner-shape: squircle) { .journal-photo, .journal-entry, .photo-action, .ai-result { corner-shape: squircle; border-radius: 26px; } }
 .text-btn.danger[data-action="confirm-remove"] { background: var(--due); color: white; border-radius: 14px; text-align: center; }
 .empty-state { padding: 35px 20px; text-align: center; background: #E8DFFC; border-radius: 24px; }
 .empty-state h2 { font-size: 26px; letter-spacing: -.8px; }

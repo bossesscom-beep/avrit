@@ -4,7 +4,9 @@ Avrit is a small upkeep reminder. Log the day you last cut your nails, had a hai
 
 Open `index.html` in a browser. The page uses ordinary script tags, so opening the file directly works. The public copy is [https://bighelpers.in/avrit/](https://bighelpers.in/avrit/).
 
-The suggestion you see with no API key is Avrit's own timing. A Gemini key can be saved from More; it stays in this browser and is not part of the repository. Air-conditioner and battery dates are qualified service checks, not home refrigerant or charging jobs.
+Avrit's own timing works offline. Completion history supports one photo and a note per day; photos are resized and stored in IndexedDB on the device. Adding an older entry preserves the most recent completion date. Device/browser data deletion removes local history and photos; there is no cloud photo sync.
+
+Optional Gemini assistance can draft a reminder from plain language or help describe a photo. Each request requires an explicit sharing action, and suggestions remain drafts until accepted. Provider credentials are server-only. See [server/README.md](server/README.md) for the authenticated API and deployment gates. Air-conditioner and battery dates remain qualified service checks, not home refrigerant or charging jobs.
 
 ```bash
 npm test
