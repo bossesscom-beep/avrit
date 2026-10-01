@@ -21,6 +21,8 @@
   var notified = {};
   var audioCtx = null;
   var reduced = false;
+  var renderedView = null;
+  var statusTimer = 0;
 
   function boot() {
     try {
@@ -35,6 +37,17 @@
     });
     document.getElementById("viewport").addEventListener("pointerdown", onPointerDown);
     document.getElementById("viewport").addEventListener("click", onClick);
+    document.querySelector(".bottom-nav").addEventListener("click", onClick);
+    document.getElementById("viewport").addEventListener("keydown", onKeyDown);
+    document.getElementById("viewport").addEventListener("wheel", onWheel, { passive: false });
+    if (window.matchMedia) window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", function (event) {
+      reduced = event.matches;
+      if (reduced) { coastToken += 1; state.listY = clamp(state.listY, listBounds().min, 0); state.pointerX = 0; state.pointerShift = 0; applyMotion(); }
+    });
+    window.addEventListener("resize", function () {
+      state.listY = clamp(state.listY, listBounds().min, 0);
+      applyMotion();
+    });
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
@@ -50,7 +63,7 @@
       var raw = localStorage.getItem(STORE);
       if (!raw) return null;
       var parsed = JSON.parse(raw);
-      if (!parsed || !parsed.items || !parsed.items.length) return null;
+      if (!parsed || !Array.isArray(parsed.items)) return null;
       return parsed.items;
     } catch (err) { return null; }
   }
@@ -105,62 +118,112 @@
     return node;
   }
 
+  function icon(kind) {
+    var paths = {
+      nail: ["M8 17v-6a2 2 0 0 1 4 0V6a2 2 0 0 1 4 0v5a2 2 0 0 1 4 0v4c0 4-2 6-6 6-3 0-5-1-7-4l-3-4a2 2 0 0 1 3-2l1 1"],
+      haircut: ["M5 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z", "M5 14a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z", "M8 9l12 11M8 15 20 4"],
+      ac: ["M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7", "m9 4 3 3 3-3M9 20l3-3 3 3M3 10l4-1-1-4M21 14l-4 1 1 4M3 14l4 1-1 4M21 10l-4-1 1-4"],
+      battery: ["M3 7h17v13H3zM6 4h3v3M14 4h3v3M6 13h4M8 11v4M14 13h3"],
+      insurance: ["M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6Z", "m8 12 3 3 5-6"],
+      custom: ["M12 3v18M3 12h18", "M6 6l12 12M6 18 18 6"]
+    };
+    var host = el("span", { class: "item-icon", "aria-hidden": "true" });
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.6");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    (paths[kind] || paths.custom).forEach(function (d) {
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    });
+    host.appendChild(svg);
+    return host;
+  }
+
+  function field(label, input) {
+    return el("label", { class: "field-label" }, [el("span", { text: label }), input]);
+  }
+
   function render() {
     var stage = document.getElementById("stage");
+    var changedView = renderedView !== state.view;
+    var oldSheet = document.getElementById("sheet");
+    var openOptions = !changedView && document.getElementById("item-options") && document.getElementById("item-options").open;
+    var scroll = !changedView && oldSheet ? oldSheet.scrollTop : 0;
+    var focused = document.activeElement;
+    var focusId = !changedView && focused ? focused.id : "";
+    var focusAction = !changedView && focused ? focused.getAttribute("data-action") : "";
+    var focusItem = !changedView && focused ? focused.getAttribute("data-id") : "";
+    coastToken += 1;
     stage.textContent = "";
+    document.getElementById("home-intro").hidden = state.view !== "home";
+    document.getElementById("today-label").textContent = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    document.getElementById("nav-home").setAttribute("aria-current", state.view === "home" || state.view === "detail" ? "page" : "false");
+    document.getElementById("nav-more").setAttribute("aria-current", state.view === "more" ? "page" : "false");
     if (state.view === "detail") stage.appendChild(renderDetail());
     else if (state.view === "more") stage.appendChild(renderMore());
     else if (state.view === "add") stage.appendChild(renderAdd());
     else stage.appendChild(renderHome());
     raiseDueLabels();
-    if (state.view !== "home") springIn(stage.firstChild);
-    else applyMotion();
+    if (openOptions && document.getElementById("item-options")) document.getElementById("item-options").open = true;
+    if (state.view !== "home") {
+      stage.firstChild.scrollTop = scroll;
+      if (changedView) springIn(stage.firstChild);
+    } else {
+      state.listY = clamp(state.listY, listBounds().min, 0);
+      applyMotion();
+      if (changedView) stage.firstChild.classList.add("entering");
+    }
+    if (changedView && renderedView !== null) {
+      var heading = stage.querySelector("h2") || stage.querySelector("[data-action='open']");
+      if (heading) { if (heading.tagName === "H2") heading.setAttribute("tabindex", "-1"); heading.focus({ preventScroll: true }); }
+    } else if (focusId || focusAction) {
+      var target = focusId ? document.getElementById(focusId) : Array.prototype.find.call(stage.querySelectorAll("[data-action]"), function (node) {
+        return node.getAttribute("data-action") === focusAction && node.getAttribute("data-id") === focusItem;
+      });
+      if (target) target.focus({ preventScroll: true });
+    }
+    renderedView = state.view;
   }
 
   function renderHome() {
     var stack = el("div", { class: "stack", id: "stack" });
     var shown = todayValue();
-    state.items.forEach(function (item) {
+    if (!state.items.length) {
+      stack.appendChild(el("section", { class: "empty-state" }, [
+        el("h2", { text: "Make room for a rhythm." }),
+        el("p", { class: "quiet", text: "Something for you, your home, or whatever needs a little care." }),
+        el("button", { class: "done", type: "button", "data-action": "add", text: "＋ Add a reminder" })
+      ]));
+    }
+    state.items.forEach(function (item, index) {
       var schedule = engine.suggest(item, { useRemote: !!readKey() });
       var due = engine.reminderFor(item, new Date(), { useRemote: !!readKey() }).due;
       var overdue = due && printedBeforeToday(schedule);
       var card = el("article", {
         class: "card" + (due ? " is-due" : "") + (overdue ? " is-overdue" : "") + (state.pulseId === item.id ? " is-ack" : ""),
-        "data-item": item.id,
-        "data-kind": item.kind,
-        "data-action": "open"
+        "data-item": item.id, "data-kind": item.kind, "aria-label": item.title
       });
-      card.appendChild(el("p", { class: "kicker", text: item.title }));
-      var next = el("p", {
-        class: "next",
-        "data-next-due": item.id,
-        text: schedule.nextAt ? engine.prettyDate(schedule.nextAt) : "Not logged yet"
-      });
-      if (schedule.nextAt) next.setAttribute("datetime", engine.formatDay(schedule.nextAt));
-      card.appendChild(next);
-      card.appendChild(el("p", { class: "reason", text: schedule.reason }));
-      card.appendChild(el("p", {
-        class: "meta",
-        text: item.lastDone ? ("Last logged " + engine.prettyDate(engine.calendarDay(item.lastDone))) : ("Logs " + engine.prettyDate(engine.calendarDay(shown)))
-      }));
+      var main = el("div", { class: "card-main", role: "button", tabindex: "0", "data-action": "open", "data-item": item.id, "aria-label": "Open " + item.title + " details" });
+      main.appendChild(icon(item.kind));
+      main.appendChild(el("p", { class: "kicker", text: item.title }));
+      var next = el("p", { class: "next", "data-next-due": item.id, text: schedule.nextAt ? engine.prettyDate(schedule.nextAt) : "Start a rhythm" });
+      main.appendChild(next);
+      main.appendChild(el("p", { class: "meta", text: item.lastDone ? "Last done " + engine.prettyDate(engine.calendarDay(item.lastDone)) : "Log today, or choose a past date ↗" }));
+      card.appendChild(main);
       var foot = el("div", { class: "card-foot" });
+      foot.appendChild(el("button", { class: "grip", type: "button", "data-grip": "1", "data-id": item.id, "aria-label": "Move " + item.title, title: "Drag to reorder. Use arrow keys when focused.", text: "⠿" }));
+      foot.appendChild(el("span", { class: "card-state", text: state.pulseId === item.id ? "A little care. Taken care of." : overdue ? "Overdue · ready when you are" : due ? "Due today" : schedule.nextAt ? "Next time is set" : "Your first log awaits" }));
       foot.appendChild(el("button", {
-        class: "grip",
-        type: "button",
-        "data-grip": "1",
-        "data-id": item.id,
-        "aria-label": "Move " + item.title
-      }));
-      foot.appendChild(el("button", {
-        class: "done" + (state.pulseId === item.id ? " is-clicked" : ""),
-        type: "button",
-        "data-action": "done",
-        "data-id": item.id,
-        "data-shown": shown,
-        text: "Done"
+        class: "done" + (state.pulseId === item.id ? " is-clicked" : ""), type: "button", "data-action": "done", "data-id": item.id, "data-shown": shown,
+        "aria-label": "Log " + item.title + " as done today", text: state.pulseId === item.id ? "✓ Logged" : "✓ Done"
       }));
       card.appendChild(foot);
-      stack.appendChild(el("div", { class: "card-wrap" }, [card]));
+      stack.appendChild(el("div", { class: "card-wrap", style: "--index:" + Math.min(index, 5) }, [card]));
     });
     return stack;
   }
@@ -170,115 +233,93 @@
     var guide = guides.getGuide(item.kind) || guides.getGuide("custom");
     var schedule = engine.suggest(item, { useRemote: !!readKey() });
     var due = engine.reminderFor(item, new Date(), { useRemote: !!readKey() }).due;
-    var overdue = due && printedBeforeToday(schedule);
-    var sheet = el("section", {
-      class: "sheet" + (due ? " is-due" : "") + (overdue ? " is-overdue" : ""),
-      id: "sheet",
-      "data-kind": item.kind
-    });
-    sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "home", text: "Back" }));
-    sheet.appendChild(el("h2", { text: item.title }));
-    sheet.appendChild(el("p", {
-      class: "next",
-      "data-next-due": item.id,
-      text: schedule.nextAt ? engine.prettyDate(schedule.nextAt) : "Not logged yet"
-    }));
-    sheet.appendChild(el("p", { class: "reason", text: schedule.reason }));
-    var groups = [
-      ["how-to", "How to"],
-      ["method", "Recommended method"],
-      ["medical", "Medical fact"],
-      ["surprising", "Surprising fact"],
-      ["practical", "Practical guidance"]
-    ];
-    groups.forEach(function (pair) {
+    var sheet = el("section", { class: "sheet" + (due ? " is-due" : ""), id: "sheet", "data-kind": item.kind });
+    sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "home", text: "← My rhythms" }));
+    var hero = el("div", { class: "detail-hero" }, [icon(item.kind), el("h2", { text: item.title })]);
+    hero.appendChild(el("p", { class: "eyebrow", text: schedule.nextAt ? "Next up" : "A fresh start" }));
+    hero.appendChild(el("p", { class: "next", "data-next-due": item.id, text: schedule.nextAt ? engine.prettyDate(schedule.nextAt) : "Whenever you’re ready." }));
+    hero.appendChild(el("p", { class: "reason", text: schedule.reason }));
+    hero.appendChild(el("button", { class: "done", type: "button", "data-action": "done", "data-id": item.id, "data-shown": todayValue(), text: "✓ Done today" }));
+    sheet.appendChild(hero);
+    var dateRow = el("div", { class: "row" }, [
+      el("input", { class: "field", id: "when", type: "date", value: item.lastDone || todayValue(), "aria-label": "Last done date" }),
+      el("button", { class: "done", type: "button", "data-action": "save-date", "data-id": item.id, text: "Save date" })
+    ]);
+    sheet.appendChild(field("Or log a different day", dateRow));
+    var guidePanel = el("details", { class: "guide" });
+    guidePanel.appendChild(el("summary", { text: "A little know-how" }));
+    [["how-to", "How to"], ["method", "Recommended method"], ["medical", "Medical fact"], ["surprising", "Did you know?"], ["practical", "Practical guidance"]].forEach(function (pair) {
       var claims = guide.claims.filter(function (claim) { return claim.role === pair[0]; });
       if (!claims.length) return;
-      var block = el("div", { class: "block" });
-      block.appendChild(el("h3", { text: pair[1] }));
+      var block = el("div", { class: "block" }, [el("h3", { text: pair[1] })]);
       claims.forEach(function (claim) {
-        var p = el("p", { class: "claim", text: claim.text + " " });
-        var link = el("a", { href: claim.sourceUrl, text: claim.sourceName });
-        link.setAttribute("target", "_blank");
-        link.setAttribute("rel", "noopener");
-        p.appendChild(link);
-        block.appendChild(p);
+        block.appendChild(el("p", { class: "claim", text: claim.text + " " }, [el("a", { href: claim.sourceUrl, text: claim.sourceName, target: "_blank", rel: "noopener" })]));
       });
-      sheet.appendChild(block);
+      guidePanel.appendChild(block);
     });
-    var dateRow = el("div", { class: "row" });
-    var date = el("input", { class: "field", id: "when", type: "date", value: item.lastDone || todayValue() });
-    dateRow.appendChild(date);
-    dateRow.appendChild(el("button", { class: "done", type: "button", "data-action": "save-date", "data-id": item.id, text: "Save date" }));
-    sheet.appendChild(dateRow);
-    var gapRow = el("div", { class: "row" });
-    var gap = el("input", {
-      class: "field",
-      id: "gap",
-      type: "number",
-      min: "1",
-      max: "3650",
-      value: item.intervalDays || schedule.intervalDays || ""
-    });
-    gap.setAttribute("inputmode", "numeric");
-    gap.setAttribute("aria-label", "Interval in days");
-    gapRow.appendChild(gap);
-    gapRow.appendChild(el("button", { class: "done", type: "button", "data-action": "save-gap", "data-id": item.id, text: "Save interval" }));
-    sheet.appendChild(gapRow);
-    sheet.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "clear-gap", "data-id": item.id, text: "Use Avrit's suggestion" }));
-    if (state.armedRemove) {
-      sheet.appendChild(el("button", { class: "text-btn danger", type: "button", "data-action": "confirm-remove", "data-id": item.id, text: "Confirm remove" }));
-    } else {
-      sheet.appendChild(el("button", { class: "text-btn danger", type: "button", "data-action": "arm-remove", text: "Remove" }));
-    }
+    sheet.appendChild(guidePanel);
+    var options = el("details", { class: "guide", id: "item-options" });
+    options.appendChild(el("summary", { text: "Adjust this rhythm" }));
+    var gapRow = el("div", { class: "row" }, [
+      el("input", { class: "field", id: "gap", type: "number", min: "1", max: "3650", inputmode: "numeric", value: item.intervalDays || schedule.intervalDays || "", "aria-label": "Interval in days" }),
+      el("button", { class: "done", type: "button", "data-action": "save-gap", "data-id": item.id, text: "Save interval" })
+    ]);
+    options.appendChild(field("Days between reminders", gapRow));
+    options.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "clear-gap", "data-id": item.id, text: "Use Avrit’s suggestion" }));
+    options.appendChild(el("button", { class: "text-btn danger", type: "button", "data-action": state.armedRemove ? "confirm-remove" : "arm-remove", "data-id": item.id, text: state.armedRemove ? "Confirm remove" : "Remove this rhythm" }));
+    if (state.armedRemove) options.open = true;
+    sheet.appendChild(options);
     return sheet;
   }
 
   function renderMore() {
     var sheet = el("section", { class: "sheet", id: "sheet" });
-    sheet.appendChild(el("h2", { text: "More" }));
-    sheet.appendChild(el("p", { class: "quiet", text: "The home list only logs today's date. Guides, intervals, and removal stay here." }));
-    sheet.appendChild(el("button", { class: "done", type: "button", "data-action": "add", text: "Add an item" }));
-    sheet.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "notify", text: "Allow reminders" }));
-    sheet.appendChild(el("p", { class: "quiet", id: "notify-note", text: notifyNote() }));
+    sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "home", text: "← My rhythms" }));
+    sheet.appendChild(el("h2", { text: "Your kind of rhythm." }));
+    sheet.appendChild(el("p", { class: "quiet", text: "A few small settings. Then back to your day." }));
+    var reminders = el("div", { class: "settings-block" }, [el("h3", { text: "Reminders" })]);
+    reminders.appendChild(el("p", { class: "quiet", id: "notify-note", text: notifyNote() }));
+    reminders.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "notify", text: "Allow reminders →" }));
+    sheet.appendChild(reminders);
+    var feel = el("div", { class: "settings-block" }, [el("h3", { text: "The little details" })]);
+    feel.appendChild(el("button", { class: "preference", type: "button", "data-action": "toggle-sound", "aria-pressed": String(soundEnabled()), text: "Soft sounds", "data-value": soundEnabled() ? "On" : "Off" }));
+    feel.appendChild(el("p", { class: "quiet", text: "A soft click for a small moment of care. Touch feedback follows your device’s settings." }));
+    sheet.appendChild(feel);
+    var advanced = el("details", { class: "guide" });
+    advanced.appendChild(el("summary", { text: "Optional extras" }));
     var keyRow = el("div", { class: "row" });
-    var key = el("input", { class: "field", id: "gemini-key", type: "password", placeholder: "Gemini key, optional" });
-    key.setAttribute("autocomplete", "off");
-    key.setAttribute("aria-label", "Gemini API key");
+    var key = el("input", { class: "field", id: "gemini-key", type: "password", placeholder: "Gemini key", autocomplete: "off", "aria-label": "Gemini API key" });
     if (readKey()) key.value = readKey();
     keyRow.appendChild(key);
     keyRow.appendChild(el("button", { class: "done", type: "button", "data-action": "save-key", text: "Save key" }));
-    sheet.appendChild(keyRow);
-    sheet.appendChild(el("p", { class: "quiet", text: "With no key, Avrit keeps its own timing. The key stays in this browser and is never written into the app." }));
-    sheet.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "clear-key", text: "Forget key" }));
-    sheet.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "restore", text: "Restore the five built-in items" }));
+    advanced.appendChild(keyRow);
+    advanced.appendChild(el("p", { class: "quiet", text: "Avrit works without a key. If added, your item and last-done date go to Google Gemini for a timing suggestion. The key stays on this device." }));
+    advanced.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "clear-key", text: "Forget key" }));
+    advanced.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "restore", text: "Restore the five starter rhythms" }));
+    sheet.appendChild(advanced);
+    sheet.appendChild(el("p", { class: "quiet", text: "Avrit · A little care, on repeat." }));
     return sheet;
   }
 
   function renderAdd() {
     var sheet = el("section", { class: "sheet", id: "sheet" });
-    sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "more", text: "Back" }));
-    sheet.appendChild(el("h2", { text: "Add an item" }));
-    var name = el("input", { class: "field", id: "custom-name", type: "text", placeholder: "Name" });
-    name.setAttribute("aria-label", "Item name");
-    sheet.appendChild(name);
-    var when = el("input", { class: "field", id: "custom-when", type: "date", value: todayValue() });
-    when.setAttribute("aria-label", "Last done");
-    sheet.appendChild(when);
-    var gap = el("input", { class: "field", id: "custom-gap", type: "number", min: "1", placeholder: "Days, optional" });
-    gap.setAttribute("aria-label", "Interval in days");
-    sheet.appendChild(gap);
-    sheet.appendChild(el("button", { class: "done", type: "button", "data-action": "create", text: "Save item" }));
-    sheet.appendChild(el("p", { class: "quiet", id: "add-note", text: "" }));
+    sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "home", text: "← My rhythms" }));
+    sheet.appendChild(el("h2", { text: "Make it a rhythm." }));
+    sheet.appendChild(el("p", { class: "quiet", text: "From watering a plant to changing a filter. Give it a name; we’ll keep its place." }));
+    sheet.appendChild(field("What needs a little care?", el("input", { class: "field", id: "custom-name", type: "text", placeholder: "e.g. Water the plants", maxlength: "80", "aria-label": "Item name" })));
+    sheet.appendChild(field("When did you last do it?", el("input", { class: "field", id: "custom-when", type: "date", value: todayValue(), "aria-label": "Last done" })));
+    sheet.appendChild(field("Repeat every … days", el("input", { class: "field", id: "custom-gap", type: "number", min: "1", max: "3650", inputmode: "numeric", placeholder: "Optional", "aria-label": "Interval in days" })));
+    sheet.appendChild(el("button", { class: "done", type: "button", "data-action": "create", text: "＋ Add to my rhythms" }));
+    sheet.appendChild(el("p", { class: "quiet", id: "add-note", role: "alert", text: "" }));
     return sheet;
   }
 
   function notifyNote() {
-    if (location.protocol !== "https:" && location.protocol !== "http:") return "System notifications need the https page. The list still shows what is due.";
-    if (!window.Notification) return "This browser has no notification API. The list still shows what is due.";
-    if (Notification.permission === "granted") return "System reminders are on. The list still marks what is due.";
+    if (location.protocol !== "https:" && location.protocol !== "http:") return "Your due reminders appear when you open Avrit.";
+    if (!window.Notification) return "Your due reminders appear when you open Avrit.";
+    if (Notification.permission === "granted") return "Notifications are allowed while Avrit is open. Your list always shows what is due.";
     if (Notification.permission === "denied") return "Notifications are blocked. The list still marks what is due.";
-    return "System reminders stay off until you allow them. The list still marks what is due.";
+    return "See what is due whenever you open Avrit. You can also allow notifications while the page is open.";
   }
 
   function onClick(event) {
@@ -298,8 +339,14 @@
       return;
     }
     if (action === "open") {
+      hapticClick("selection");
       if (event.target.closest("[data-grip], [data-action='done']")) return;
       openDetail(actionNode.getAttribute("data-item"));
+      return;
+    }
+    if (action === "toggle-sound") {
+      try { localStorage.setItem("avrit.sound", soundEnabled() ? "off" : "on"); } catch (err) { /* optional */ }
+      render();
       return;
     }
     if (action === "home") { goHome(); return; }
@@ -327,7 +374,6 @@
     state.view = "home";
     state.detailId = null;
     state.armedRemove = false;
-    state.listY = 0;
     state.listV = 0;
     render();
   }
@@ -356,9 +402,15 @@
       if (state.pulseId === id) {
         state.pulseId = "";
         var card = document.querySelector('[data-item="' + id + '"]');
-        if (card) card.classList.remove("is-ack");
+        if (card) {
+          card.classList.remove("is-ack");
+          var caption = card.querySelector(".card-state");
+          if (caption) caption.textContent = "Next time is set";
+        }
       }
-    }, 700);
+        var button = document.querySelector('[data-action="done"][data-id="' + id + '"]');
+        if (button && state.view === "home") { button.textContent = "✓ Done"; button.classList.remove("is-clicked"); }
+      }, 1100);
   }
 
   function saveDate(id) {
@@ -414,6 +466,9 @@
     state.items = state.items.concat([item]);
     save();
     goHome();
+    state.listY = listBounds().min;
+    applyMotion();
+    setStatus(item.title + " added. Its next time is set.");
   }
 
   function saveKey() {
@@ -457,6 +512,8 @@
   function setStatus(text) {
     var node = document.getElementById("status");
     if (node) node.textContent = text;
+    window.clearTimeout(statusTimer);
+    statusTimer = window.setTimeout(function () { if (node) node.textContent = ""; }, 3800);
   }
 
   function raiseDue() {
@@ -479,16 +536,47 @@
     var host = document.getElementById("reminders");
     if (!host) return;
     host.textContent = "";
-    state.items.forEach(function (item) {
+    var dueItems = state.items.filter(function (item) {
       var reminder = engine.reminderFor(item, new Date(), { useRemote: !!readKey() });
-      if (!reminder.due) return;
-      var schedule = engine.suggest(item, { useRemote: !!readKey() });
-      var overdue = printedBeforeToday(schedule);
-      host.appendChild(el("p", {
-        class: "banner" + (overdue ? " is-overdue" : ""),
-        text: reminder.inApp.title + " is due"
-      }));
+      var card = Array.prototype.find.call(document.querySelectorAll(".card"), function (node) { return node.getAttribute("data-item") === item.id; });
+      if (card) {
+        var overdue = reminder.due && printedBeforeToday(reminder.schedule);
+        card.classList.toggle("is-due", reminder.due);
+        card.classList.toggle("is-overdue", overdue);
+        if (reminder.due && item.id !== state.pulseId) card.querySelector(".card-state").textContent = overdue ? "Overdue · ready when you are" : "Due today";
+      }
+      return reminder.due;
     });
+    if (dueItems.length) host.appendChild(el("p", { class: "banner", text: dueItems.length === 1 ? dueItems[0].title + " is due. A little care when you can." : dueItems.length + " rhythms are due. One at a time." }));
+    var logged = state.items.filter(function (item) { return !!item.lastDone; }).length;
+    document.getElementById("home-summary").textContent = logged ? logged + " rhythm" + (logged === 1 ? "" : "s") + " in motion. A little care goes a long way." : "Little things. One less thing to remember.";
+  }
+
+  function onWheel(event) {
+    if (state.view !== "home") return;
+    event.preventDefault();
+    coastToken += 1;
+    state.listY = clamp(state.listY - event.deltaY, listBounds().min, 0);
+    applyMotion();
+  }
+
+  function onKeyDown(event) {
+    var grip = event.target.closest("[data-grip]");
+    if (grip && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      var id = grip.getAttribute("data-id");
+      var from = state.items.indexOf(find(id));
+      var to = clamp(from + (event.key === "ArrowUp" ? -1 : 1), 0, state.items.length - 1);
+      state.items = gesture.commitMove(state.items, from, to);
+      save(); render(); hapticClick("selection");
+      var moved = Array.prototype.find.call(document.querySelectorAll("[data-grip]"), function (node) { return node.getAttribute("data-id") === id; });
+      if (moved) moved.focus({ preventScroll: true });
+      setStatus("Moved " + find(id).title + " to position " + (to + 1) + ".");
+      return;
+    }
+    if (event.target.matches('[data-action="open"]') && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault(); openDetail(event.target.getAttribute("data-item"));
+    }
   }
 
   function onPointerDown(event) {
@@ -536,7 +624,32 @@
       moved: false
     };
     card.classList.add("is-grabbed");
+    hapticClick("grab");
+    if (grip.setPointerCapture) grip.setPointerCapture(event.pointerId);
+    autoScrollGrab();
     event.preventDefault();
+  }
+
+  function autoScrollGrab() {
+    var current = drag;
+    var last = performance.now();
+    function frame(now) {
+      if (!drag || drag !== current || drag.mode !== "grab") return;
+      var box = document.getElementById("viewport").getBoundingClientRect();
+      var edge = 65;
+      var speed = drag.lastY < box.top + edge ? Math.min(1, (box.top + edge - drag.lastY) / edge) * 230
+        : drag.lastY > box.bottom - edge ? -Math.min(1, (drag.lastY - box.bottom + edge) / edge) * 230 : 0;
+      var previous = state.listY;
+      state.listY = clamp(state.listY + speed * Math.min(.032, (now - last) / 1000), listBounds().min, 0);
+      last = now;
+      if (previous !== state.listY) {
+        drag.dy += previous - state.listY;
+        applyMotion();
+        updateGrab();
+      }
+      window.requestAnimationFrame(frame);
+    }
+    window.requestAnimationFrame(frame);
   }
 
   function onPointerMove(event) {
@@ -556,7 +669,21 @@
     }
     drag.dy += dy;
     drag.moved = true;
+    updateGrab();
+  }
+
+  function updateGrab() {
+    var previousHover = drag.hover;
     drag.hover = clamp(drag.from + Math.round(drag.dy / drag.slot), 0, state.items.length - 1);
+    if (previousHover !== drag.hover) hapticClick("selection");
+    Array.prototype.forEach.call(document.querySelectorAll(".card"), function (card, index) {
+      if (card === drag.card) return;
+      var shift = 0;
+      if (drag.hover > drag.from && index > drag.from && index <= drag.hover) shift = -drag.slot;
+      if (drag.hover < drag.from && index >= drag.hover && index < drag.from) shift = drag.slot;
+      card.style.transition = reduced ? "none" : "transform 220ms cubic-bezier(.2,.8,.2,1)";
+      card.style.transform = "translateY(" + shift + "px)";
+    });
     drag.card.style.transform = "translate3d(0," + drag.dy.toFixed(2) + "px,0) scale(1.03)";
   }
 
@@ -569,10 +696,11 @@
       releaseList(finished.v);
       return;
     }
-    var landing = gesture.flingIndex(finished.hover, Math.max(-700, Math.min(700, finished.v)), finished.slot, state.items.length, {
-      friction: reduced ? 8 : 4,
-      restitution: 0.45
-    });
+    if (event.type === "pointercancel") { render(); return; }
+    swallowUntil = performance.now() + 350;
+    hapticClick("release");
+    // Keep a deliberate drop in its previewed slot; velocity only affects settling.
+    var landing = { index: finished.hover };
     var ids = state.items.map(function (item) { return item.id; });
     var order = gesture.commitMove(ids, finished.from, landing.index);
     var byId = {};
@@ -602,6 +730,7 @@
     coastToken += 1;
     var token = coastToken;
     var bounds = listBounds();
+    if (reduced) { state.listY = clamp(state.listY, bounds.min, bounds.max); state.listV = 0; applyMotion(); return; }
     var homing = state.listY > bounds.max + 0.5 || state.listY < bounds.min - 0.5;
     var home = state.listY > bounds.max ? bounds.max : bounds.min;
     state.listV = reduced ? 0 : (homing ? Math.max(-80, Math.min(80, velocity)) : velocity);
@@ -659,7 +788,7 @@
   }
 
   function springIn(node) {
-    if (!node) return;
+    if (!node || reduced) return;
     var motion = { y: reduced ? 0 : 48, v: 0 };
     var last = performance.now();
     function frame(now) {
@@ -681,6 +810,7 @@
   }
 
   function springValue(from, velocity, target, draw, done) {
+    if (reduced) { draw(target); done(); return; }
     var motion = { y: from, v: reduced ? 0 : velocity };
     var last = performance.now();
     var frames = 0;
@@ -713,7 +843,7 @@
   }
 
   function shiftSky(event) {
-    if (drag) return;
+    if (drag || reduced) return;
     var width = window.innerWidth || 1;
     var height = window.innerHeight || 1;
     state.pointerX = ((event.clientX / width) - 0.5) * 12;
@@ -727,18 +857,28 @@
 
   function feedbackFromGesture(node) {
     if (node) node.classList.add("is-clicked");
-    hapticClick();
+    hapticClick("success");
     playTick();
     flashRing(node);
   }
 
-  function hapticClick() {
+  function hapticClick(kind) {
     try {
-      if (navigator.vibrate) navigator.vibrate(10);
-    } catch (err) { /* visual tick still runs */ }
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.avritFeedback) {
+        window.webkit.messageHandlers.avritFeedback.postMessage(kind || "selection");
+      } else if (window.AvritNative && window.AvritNative.postMessage) {
+        window.AvritNative.postMessage(kind || "selection");
+      } else if (navigator.vibrate) navigator.vibrate(kind === "success" ? 9 : 5);
+    } catch (err) { /* visual feedback remains */ }
+  }
+
+  function soundEnabled() {
+    try { return localStorage.getItem("avrit.sound") !== "off"; }
+    catch (err) { return true; }
   }
 
   function playTick() {
+    if (!soundEnabled()) return;
     var Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     try {
@@ -751,7 +891,7 @@
       osc.frequency.setValueAtTime(740, now);
       osc.frequency.exponentialRampToValueAtTime(420, now + 0.08);
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.03, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.012, now + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
       osc.connect(gain);
       gain.connect(audioCtx.destination);

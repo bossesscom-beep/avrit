@@ -7,6 +7,10 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "Avrit release env is missing." >&2
   exit 1
 fi
+if [[ "$(stat -f '%Lp' "$ENV_FILE")" != "600" ]]; then
+  echo "Avrit release env must be mode 600." >&2
+  exit 1
+fi
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
@@ -28,6 +32,9 @@ check_key() {
 
 check_key "$ASC_KEY_PATH"
 check_key "$PLAY_JSON_KEY"
+if [[ -n "${ANDROID_KEYSTORE_PATH:-}" ]]; then
+  check_key "$ANDROID_KEYSTORE_PATH"
+fi
 
 if [[ $# -lt 1 ]]; then
   echo "usage: with-release-env.sh COMMAND..." >&2
