@@ -3,6 +3,8 @@
 This is a private-pilot API, separate from the bundled/static app. It is not
 deployed by `copy-web.sh` or either Fastlane upload lane. Requires Node 22+.
 The app works offline with Gemini disconnected.
+Deploy `js/catalog.js` alongside `server/` at the same relative path; the API
+uses that shared catalog to validate template IDs and resolve categories.
 
 ## Setup
 
@@ -39,6 +41,12 @@ for browser development. No provider key is entered in the client.
 - `POST /api/suggest` requires `Authorization: Bearer <device-token>`.
   A `create` request contains `task` and `text` (maximum 800 characters).
   A `photo` request also contains `mimeType: image/jpeg` and base64 `image`.
+  A `schedule` request contains `text` (routine name, at most 80 characters),
+  `category`, optional known `templateId`, and `context` (at most 500 characters).
+  It returns an estimated interval, friendly `reason`, and a small practical
+  suggestion in `note`. Extra profile fields are not forwarded to Gemini.
+  Known template categories resolve server-side; health templates return no
+  model-generated interval, even if a client supplies a different category.
 - Photos are re-encoded by the client to at most 1280 pixels and 900 KB. The API
   validates MIME, base64, JPEG signature and payload size, and accepts no remote
   image URLs. Do not place request bodies in proxy/access/error logs.
@@ -89,3 +97,7 @@ Official references: [API key security](https://ai.google.dev/gemini-api/docs/ap
 `npm test` uses a fake provider and fake IndexedDB. It never invokes paid Gemini.
 Coverage includes authentication, CORS, malformed image/output rejection, quota
 enforcement, offline photo failure, history migration and explicit draft adoption.
+Schedule tests also cover context bounds, omission of profile/photos, health
+template protection, friendly structured estimates, unchanged timing until
+adoption, failed saves and stale responses after leaving a card. Provider calls
+remain simulated in automated tests; a successful test is not live Gemini proof.

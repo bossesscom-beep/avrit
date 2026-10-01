@@ -157,7 +157,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Avrit;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Add a photo to remember the care you completed.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose a photo for your Avrit completion journal.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose photos for your Avrit profile or completion journal.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDarkContent;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -312,7 +312,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Avrit;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Add a photo to remember the care you completed.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose a photo for your Avrit completion journal.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose photos for your Avrit profile or completion journal.";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDarkContent;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;

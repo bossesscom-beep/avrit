@@ -103,3 +103,35 @@ test('input and output validation reject out-of-range timing and oversized text'
   assert.throws(() => validateOutput({ ...draft, intervalDays: 3651 }));
   assert.equal(validateOutput({ ...draft, intervalDays: null }).intervalDays, null);
 });
+
+test('schedule estimates forward only bounded routine context and request a friendly practical suggestion', async t => {
+  const app = await service(t);
+  const result = await app.post('/api/suggest', { task: 'schedule', text: 'Shoe cleaning', templateId: 'shoes', category: 'wardrobe', context: 'Worn daily', profile: { name: 'Private' }, gender: 'private', photos: ['private-photo'] }, await app.login());
+  assert.equal(result.status, 200);
+  const upstream = JSON.parse(app.calls[0].request.body);
+  const data = JSON.parse(upstream.input[0].text);
+  assert.deepEqual(data, { task: 'schedule', description: 'Shoe cleaning', category: 'wardrobe', context: 'Worn daily' });
+  assert.match(upstream.system_instruction, /warm, specific, achievable suggestion/);
+  assert.ok(!JSON.stringify(upstream).includes('Private'));
+  assert.ok(!JSON.stringify(upstream).includes('private-photo'));
+});
+
+test('health template protection cannot be bypassed by relabelling the category and never invokes the provider', async t => {
+  const app = await service(t), token = await app.login();
+  for (const body of [
+    { task: 'schedule', text: 'Eye checkup', templateId: 'eye-checkup', category: 'self', context: 'Guess the ideal gap' },
+    { task: 'schedule', text: 'My medication reminder', category: 'custom', context: '' }
+  ]) {
+    const result = await app.post('/api/suggest', body, token);
+    assert.equal(result.status, 200); assert.equal(result.body.intervalDays, null); assert.match(result.body.reason, /clinician/);
+  }
+  assert.equal(app.calls.length, 0);
+});
+
+test('schedule requests reject oversized context, unknown templates and photo payloads', () => {
+  const body = { task: 'schedule', text: 'Hair cutting', category: 'self', context: '' };
+  assert.throws(() => validateInput({ ...body, context: 'x'.repeat(501) }));
+  assert.throws(() => validateInput({ ...body, templateId: 'not-real' }));
+  assert.throws(() => validateInput({ ...body, category: 'not-real' }));
+  assert.throws(() => validateInput({ ...body, image: 'not-allowed' }));
+});

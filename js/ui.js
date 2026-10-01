@@ -5,6 +5,9 @@
   var STORE = "avrit.items.v1";
   var state = {
     items: [],
+    profile: {},
+    onboardingComplete: false,
+    filter: "all",
     view: "home",
     detailId: null,
     listY: 0,
@@ -27,7 +30,8 @@
     try {
       reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     } catch (err) { reduced = false; }
-    state.items = readItems() || engine.builtinItems();
+    var savedItems = readItems();
+    state.items = savedItems || (window.AvritOnboarding ? [] : engine.builtinItems());
     var more = document.getElementById("more-btn");
     more.addEventListener("click", function () {
       state.view = state.view === "more" ? "home" : "more";
@@ -52,6 +56,7 @@
     window.addEventListener("pointercancel", onPointerUp);
     window.addEventListener("pointermove", shiftSky);
     render();
+    if (savedItems === null && window.AvritOnboarding) beginOnboarding();
     raiseDue();
     window.setInterval(raiseDue, 30000);
     document.addEventListener("visibilitychange", raiseDue);
@@ -63,12 +68,14 @@
       if (!raw) return null;
       var parsed = JSON.parse(raw);
       if (!parsed || !Array.isArray(parsed.items)) return null;
+      state.profile = parsed.profile || {};
+      state.onboardingComplete = !!parsed.onboardingComplete;
       return parsed.items;
     } catch (err) { return null; }
   }
 
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify({ version: 1, items: state.items })); return true; }
+    try { localStorage.setItem(STORE, JSON.stringify({ version: 1, items: state.items, profile: state.profile, onboardingComplete: state.onboardingComplete })); return true; }
     catch (err) { setStatus("Could not save. Free some device storage and try again."); return false; }
   }
 
@@ -192,6 +199,12 @@
   function renderHome() {
     var stack = el("div", { class: "stack", id: "stack" });
     var shown = todayValue();
+    var visibleItems = state.items.filter(function (item) {
+      if (state.filter === 'all') return true;
+      if (state.filter === 'due') return engine.reminderFor(item, new Date()).due;
+      if (state.filter === 'upcoming') return engine.suggest(item).nextAt && !engine.reminderFor(item, new Date()).due;
+      return item.category === state.filter;
+    });
     if (!state.items.length) {
       stack.appendChild(el("section", { class: "empty-state" }, [
         el("h2", { text: "Make room for a rhythm." }),
@@ -199,7 +212,8 @@
         el("button", { class: "done", type: "button", "data-action": "add", text: "＋ Add a reminder" })
       ]));
     }
-    state.items.forEach(function (item, index) {
+    if (state.items.length && !visibleItems.length) stack.appendChild(el('section', { class: 'empty-state' }, [el('h2', { text: 'A little breathing room.' }), el('p', { class: 'quiet', text: 'Nothing here right now. Choose All Avrits to see your collection.' })]));
+    visibleItems.forEach(function (item, index) {
       var schedule = engine.suggest(item, { useRemote: false });
       var due = engine.reminderFor(item, new Date(), { useRemote: false }).due;
       var overdue = due && printedBeforeToday(schedule);
@@ -208,14 +222,16 @@
         "data-item": item.id, "data-kind": item.kind, "aria-label": item.title
       });
       var main = el("div", { class: "card-main", role: "button", tabindex: "0", "data-action": "open", "data-item": item.id, "aria-label": "Open " + item.title + " details" });
-      main.appendChild(icon(item.kind));
+      var category = window.AvritCatalog && window.AvritCatalog.group(item.category);
+      if (category) card.style.setProperty('--tint', category.color);
+      main.appendChild(item.symbol ? el("span", { class: "item-icon catalog-icon", "aria-hidden": "true", text: item.symbol }) : icon(item.kind));
       main.appendChild(el("p", { class: "kicker", text: item.title }));
       var next = el("p", { class: "next", "data-next-due": item.id, text: schedule.nextAt ? engine.prettyDate(schedule.nextAt) : "Start a rhythm" });
       main.appendChild(next);
-      main.appendChild(el("p", { class: "meta", text: item.lastDone ? "Last done " + engine.prettyDate(engine.calendarDay(item.lastDone)) : "Log today, or choose a past date ↗" }));
+      main.appendChild(el("p", { class: "meta", text: item.lastDone ? "Last done " + engine.prettyDate(engine.calendarDay(item.lastDone)) : item.firstDueAt ? "Every " + item.intervalDays + " days · First completion ahead" : "Log today, or choose a past date ↗" }));
       card.appendChild(main);
       var foot = el("div", { class: "card-foot" });
-      foot.appendChild(el("button", { class: "grip", type: "button", "data-grip": "1", "data-id": item.id, "aria-label": "Move " + item.title, title: "Drag to reorder. Use arrow keys when focused.", text: "⠿" }));
+      if (state.filter === 'all') foot.appendChild(el("button", { class: "grip", type: "button", "data-grip": "1", "data-id": item.id, "aria-label": "Move " + item.title, title: "Drag to reorder. Use arrow keys when focused.", text: "⠿" }));
       foot.appendChild(el("span", { class: "card-state", text: state.pulseId === item.id ? "A little care. Taken care of." : overdue ? "Overdue · ready when you are" : due ? "Due today" : schedule.nextAt ? "Next time is set" : "Your first log awaits" }));
       foot.appendChild(el("button", {
         class: "done" + (state.pulseId === item.id ? " is-clicked" : ""), type: "button", "data-action": "done", "data-id": item.id, "data-shown": shown,
@@ -240,6 +256,14 @@
     hero.appendChild(el("p", { class: "reason", text: schedule.reason }));
     hero.appendChild(el("button", { class: "done", type: "button", "data-action": "done", "data-id": item.id, "data-shown": todayValue(), text: "✓ Done today" }));
     sheet.appendChild(hero);
+    if (window.AvritTiming) sheet.appendChild(window.AvritTiming.create(item, { previewDate: function (days) {
+      var next = engine.suggest(engine.setUserInterval(item, days)).nextAt;
+      return next ? engine.prettyDate(next) : '';
+    }, onUse: function (days) {
+      var updated = engine.setUserInterval(find(item.id), days);
+      if (!commit(updated)) return false;
+      render(); setStatus('Your timing is now ' + days + ' days.'); return true;
+    } }));
     var dateRow = el("div", { class: "row" }, [
       el("input", { class: "field", id: "when", type: "date", value: item.lastDone || todayValue(), "aria-label": "Last done date" }),
       el("button", { class: "done", type: "button", "data-action": "save-date", "data-id": item.id, text: "Save date" })
@@ -264,7 +288,7 @@
       el("button", { class: "done", type: "button", "data-action": "save-gap", "data-id": item.id, text: "Save interval" })
     ]);
     options.appendChild(field("Days between reminders", gapRow));
-    options.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "clear-gap", "data-id": item.id, text: "Use Avrit’s suggestion" }));
+    if (!item.templateId) options.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "clear-gap", "data-id": item.id, text: "Use Avrit’s suggestion" }));
     options.appendChild(el("button", { class: "text-btn danger", type: "button", "data-action": state.armedRemove ? "confirm-remove" : "arm-remove", "data-id": item.id, text: state.armedRemove ? "Confirm remove" : "Remove this rhythm" }));
     if (state.armedRemove) options.open = true;
     sheet.appendChild(options);
@@ -276,6 +300,7 @@
     sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "home", text: "← My rhythms" }));
     sheet.appendChild(el("h2", { text: "Your kind of rhythm." }));
     sheet.appendChild(el("p", { class: "quiet", text: "A few small settings. Then back to your day." }));
+    if (window.AvritOnboarding) sheet.appendChild(el("button", { class: "done", type: "button", "data-action": "onboarding", text: "Your profile & Avrit collection →" }));
     var reminders = el("div", { class: "settings-block" }, [el("h3", { text: "Reminders" })]);
     reminders.appendChild(el("p", { class: "quiet", id: "notify-note", text: notifyNote() }));
     reminders.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "notify", text: "Allow reminders →" }));
@@ -297,6 +322,7 @@
     sheet.appendChild(el("button", { class: "back", type: "button", "data-action": "home", text: "← My rhythms" }));
     sheet.appendChild(el("h2", { text: "Make it a rhythm." }));
     sheet.appendChild(el("p", { class: "quiet", text: "From watering a plant to changing a filter. Give it a name; we’ll keep its place." }));
+    if (window.AvritOnboarding) sheet.appendChild(el("button", { class: "text-btn", type: "button", "data-action": "onboarding", text: "Explore 28 Avrit ideas →" }));
     sheet.appendChild(field("What needs a little care?", el("input", { class: "field", id: "custom-name", type: "text", placeholder: "e.g. Water the plants", maxlength: "80", "aria-label": "Item name" })));
     sheet.appendChild(field("When did you last do it?", el("input", { class: "field", id: "custom-when", type: "date", value: todayValue(), "aria-label": "Last done" })));
     sheet.appendChild(field("Repeat every … days", el("input", { class: "field", id: "custom-gap", type: "number", min: "1", max: "3650", inputmode: "numeric", placeholder: "Optional", "aria-label": "Interval in days" })));
@@ -324,6 +350,7 @@
     if (!actionNode) return;
     var action = actionNode.getAttribute("data-action");
     var id = actionNode.getAttribute("data-id");
+    if (action === "onboarding") { beginOnboarding(); return; }
     if (action === "done") {
       event.preventDefault();
       logDone(id, actionNode);
@@ -365,6 +392,14 @@
     state.armedRemove = false;
     state.listV = 0;
     render();
+  }
+
+  function beginOnboarding() {
+    window.AvritOnboarding.start(state.items, state.profile, function (items, profile, added) {
+      state.items = items; state.profile = profile; state.onboardingComplete = true;
+      state.listY = 0; state.filter = 'all'; goHome();
+      setStatus(added + " Avrit" + (added === 1 ? "" : "s") + " added. A little care, on repeat.");
+    });
   }
 
   function openDetail(id) {
@@ -458,6 +493,7 @@
     var previous = state.items;
     state.items = state.items.concat([item]);
     if (!save()) { state.items = previous; return; }
+    state.filter = 'all';
     goHome();
     state.listY = listBounds().min;
     applyMotion();
@@ -523,6 +559,23 @@
     if (dueItems.length) host.appendChild(el("p", { class: "banner", text: dueItems.length === 1 ? dueItems[0].title + " is due. A little care when you can." : dueItems.length + " rhythms are due. One at a time." }));
     var logged = state.items.filter(function (item) { return !!item.lastDone; }).length;
     document.getElementById("home-summary").textContent = logged ? logged + " rhythm" + (logged === 1 ? "" : "s") + " in motion. A little care goes a long way." : "Little things. One less thing to remember.";
+    var intro = document.getElementById("home-intro");
+    intro.querySelectorAll('.dashboard-overview, .dashboard-tools, .dashboard-greeting').forEach(function (n) { n.remove(); });
+    if (window.AvritOnboarding) {
+      if (state.profile.name) intro.insertBefore(el('p', { class: 'dashboard-greeting', text: 'A little care for your world, ' + state.profile.name + '.' }), intro.querySelector('h2'));
+      var upcoming = state.items.filter(function (item) { var s = engine.suggest(item); return s.nextAt && !engine.reminderFor(item, new Date()).due; }).length;
+      var overview = el('div', { class: 'dashboard-overview' });
+      [[state.items.length, 'Your Avrits'], [dueItems.length, 'Ready for care'], [upcoming, 'Coming up']].forEach(function (p) { overview.appendChild(el('span', {}, [el('strong', { text: p[0] }), document.createTextNode(p[1])])); });
+      intro.appendChild(overview);
+      var controls = el('div', { class: 'dashboard-tools' });
+      var filter = el('select', { id: 'dashboard-filter', 'aria-label': 'Show Avrits' });
+      [['all', 'All Avrits'], ['due', 'Ready for care'], ['upcoming', 'Coming up']].concat(window.AvritCatalog.groups.filter(function (g) { return state.items.some(function (i) { return i.category === g.id; }); }).map(function (g) { return [g.id, g.name]; })).forEach(function (p) { filter.appendChild(el('option', { value: p[0], text: p[1] })); });
+      if (state.items.some(function (i) { return i.category === 'custom'; })) filter.appendChild(el('option', { value: 'custom', text: 'Your own Avrits' }));
+      filter.value = state.filter;
+      filter.onchange = function () { state.filter = filter.value; state.listY = 0; render(); document.getElementById('dashboard-filter').focus(); };
+      controls.appendChild(filter);
+      var explore = el('button', { class: 'text-btn dashboard-explore', type: 'button', text: '+ Find more Avrits' }); explore.onclick = beginOnboarding; controls.appendChild(explore); intro.appendChild(controls);
+    }
   }
 
   function onWheel(event) {

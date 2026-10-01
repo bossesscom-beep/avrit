@@ -162,7 +162,7 @@
     var last = item.lastDone ? calendarDay(item.lastDone) : null;
     var days = Math.round(item.intervalDays);
     return base(item, {
-      nextAt: last == null ? null : addDays(last, days),
+      nextAt: last == null ? (item.scheduleStartedAt ? addDays(calendarDay(item.scheduleStartedAt), days) : item.firstDueAt ? calendarDay(item.firstDueAt) : null) : addDays(last, days),
       intervalDays: days,
       origin: "user",
       intent: item.kind === "ac" || item.kind === "battery" ? "service-check" : (item.kind === "insurance" ? "renewal" : "trim"),

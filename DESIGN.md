@@ -47,7 +47,59 @@ does not need to be deployed to build a store binary.
 - Secondary connection controls remain in Settings. The current access-code
   connection is a private pilot gate, not public customer onboarding.
 
-## Icon
+## Profile and Avrit discovery
+
+First launch follows five full-screen steps: optional profile, explanation of
+Avrit, areas of life, one routine per flashcard, and a grouped review. The
+definition is "something in your life that needs care again—after a week, a
+month, or a season." Avoid daily streaks or guilt-oriented copy.
+
+- Profile fields: name, optional gender/self-description, a personal intention,
+  and up to three local photos. Gender never changes the catalog or timing.
+- The 28-item catalog covers personal care, home, wardrobe/belongings, health
+  appointments, digital life, and life admin. No routine is selected by default.
+  Three initial areas are suggested; the person can choose any combination.
+- Each flashcard includes a purpose, editable day interval, optional first-date
+  controls, a practical prompt, Add, and Next. Review is reachable at any time.
+  Long content scrolls while the primary action stays in view.
+- Intervals are planning starting points. Health appointments require the
+  person's explicitly entered clinician-agreed timing; there is no suggested
+  medical interval. Selected template items keep their explicit interval.
+- Starting a rhythm sets `firstDueAt` without setting `lastDone` or fabricating
+  a journal entry. A real completion then controls the next date. Entering a
+  genuine past completion creates its initial journal entry.
+- Review supports removing, editing, and creating personal Avrits. An atomic
+  dashboard save writes items, profile and completion marker together. Drafts
+  resume after reload. A failed final save keeps the choices available.
+- Existing installations bypass onboarding. Settings/Add/dashboard discovery
+  reopen setup without replacing existing reminders or history. Already-added
+  templates are identified; the existing item always wins.
+- Dashboard shows collection, due and upcoming counts; filters include category,
+  due, upcoming and all. Reordering is available in the complete collection,
+  preventing a filtered index from changing an unrelated item's position.
+- Profile photos use the existing resize/re-encode and IndexedDB store. No
+  profile, gender or photo is sent to Gemini or another service by onboarding.
+  App/browser data deletion removes the local profile and photos. Future store
+  releases must review their disclosures for these added optional profile fields.
+
+### AI timing estimates
+
+Each onboarding card and dashboard detail offers "Find a rhythm for me".
+When Gemini is connected, an explicit request shares only the routine name,
+category and up to 500 characters of context the person enters. It never adds
+profile details, gender, photos, other reminders or completion history to that
+request. Suggestions contain a day interval, a friendly explanation and a small
+practical next step. "Use this timing" applies the estimate; receiving a response
+does not alter the schedule. Onboarding adoption still needs the final dashboard
+save. Dashboard adoption uses the normal storage rollback path.
+
+Health cards retain clinician-agreed timing. Both the client and server prevent
+known health templates from receiving invented AI intervals. Unknown or ambiguous
+timing may return no interval. Offline, quota, timeout and invalid-response states
+preserve the person's current timing. Without a configured connection, the UI
+identifies local starting points honestly and explains that AI is not yet available.
+
+## Icon assets
 
 `css/avrit-icon.svg` is the editable source: a looping lowercase a, a small
 violet spark, and a lime background. The iOS AppIcon is a 1024 × 1024 opaque
