@@ -35,6 +35,9 @@ does not need to be deployed to build a store binary.
 `css/avrit-icon.svg` is the editable source: a looping lowercase a, a small
 violet spark, and a lime background. The iOS AppIcon is a 1024 × 1024 opaque
 PNG. Android uses the matching vector mark with adaptive and monochrome layers.
+`store-assets/avrit-play-icon.png` is the matching opaque 512 × 512 listing
+asset, prepared for the separate store-listing step. Binary upload lanes do
+not change listing graphics.
 Regenerate the iOS PNG with:
 
 ```sh
